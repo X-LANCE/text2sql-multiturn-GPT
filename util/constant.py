@@ -10,3 +10,9 @@ MAX_LENS = {
 }
 
 SPEECH_API_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJoY3o5OSIsImlhdCI6MTY3OTY0Nzc0NywiZXhwIjoxNjgyMjM5NzQ3LCJuYW1lX2NuIjoiXHU1ZjIwXHU2NjU3XHU3ZmMwIiwidXNlcm5hbWUiOiJoY3o5OSIsIm9yZyI6InNqdHUifQ.AYi6YCKqgRoSUbDFaDWH25RwVri79BlFiaPsDDvLXNs'
+
+AGGS = [None, 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
+
+COND_OPS = [None, 'BETWEEN', '=', '>', '<', '>=', '<=', '!=', 'IN', 'LIKE']
+
+OPS = [None, '-', '+', '*', '/']
