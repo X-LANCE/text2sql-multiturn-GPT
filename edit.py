@@ -6,7 +6,9 @@ with open(os.path.join('data', 'sparc', 'dev.json'), 'r', encoding='utf-8') as f
     data = json.load(file)
 with open(os.path.join('data', 'sparc', 'tables.json'), 'r', encoding='utf-8') as file:
     dbs = {db['db_id']: db for db in json.load(file)}
-for example in data:
+for i, example in enumerate(data):
+    print(i)
+    print()
     db = dbs[example['database_id']]
     prev_ast, prev_sql = None, None
     for turn in example['interaction']:
@@ -14,7 +16,6 @@ for example in data:
         if prev_ast:
             print(prev_sql)
             print(sql)
-            print()
             print(ast.compare(prev_ast))
             print()
         prev_ast, prev_sql = ast, sql

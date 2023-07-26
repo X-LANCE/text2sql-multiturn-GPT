@@ -16,7 +16,7 @@ class ASDLConstructor:
         fields = {
             'Complete': ['sqlUnit', 'intersect', 'union', 'except'],
             'Simple': ['select*', 'from', 'where', 'groupBy', 'orderBy'],
-            'Conds': ['cond*', 'op*'],
+            'Conds': ['cond*', 'op'],
             'Cond': ['valUnit', 'op', 'val1', 'val2'],
             'GroupBy': ['col*', 'having'],
             'OrderBy': ['valUnit*', 'asc', 'limit'],
@@ -45,6 +45,49 @@ class AbstractSyntaxTree:
         return result
 
     def compare(self, ast, track=[]):
+        def edit_ast_node(t_new, t_old, cur_field):
+            if t_new is None and t_old is None:
+                return set()
+            if isinstance(t_new, AbstractSyntaxTree) and t_old is None:
+                if cur_field == 'select*':
+                    return {'AddSelectItem(' + edit_val_unit(t_new) + ')'}
+                if cur_field == 'where':
+                    result = set()
+                    for t in t_new.constructor.sons['cond*']:
+                        result.add('AddWhereCondition(' + edit_cond(t) + ')')
+                    return result
+                if t_new.constructor.name == 'Cond' and 'Simple.where' in track:
+                    return {'AddWhereCondition(' + edit_cond(t_new) + ')'}
+                if cur_field == 'groupBy':
+                    result = set()
+                    for col in t_new.constructor.sons['col*']:
+                        result.add('AddGroupByColumn(' + col + ')')
+                    if t_new.constructor.sons['having'] is not None:
+                        raise ValueError('ADD')
+                    return result
+                if cur_field == 'orderBy':
+                    result = 'AddOrderBy('
+                    result += ', '.join([edit_val_unit(t) for t in t_new.constructor.sons['valUnit*']])
+                    result += ', ' + ('ASC' if t_new.constructor.sons['asc'] else 'DESC')
+                    if t_new.constructor.sons['limit']:
+                        result += ', ' + str(t_new.constructor.sons['limit'])
+                    result += ')'
+                    return {result}
+                raise ValueError('ADD')
+            if t_new is None and isinstance(t_old, AbstractSyntaxTree):
+                raise ValueError('DEL')
+            if isinstance(t_new, AbstractSyntaxTree) and isinstance(t_old, AbstractSyntaxTree):
+                return t_new.compare(t_old, track + [self.constructor.name + '.' + cur_field])
+            if t_new != t_old:
+                if self.constructor.name == 'ValUnit' and 'Simple.select*' in track:
+                    return {'ChangeSelectItem(' + edit_val_unit(ast) + ', ' + edit_val_unit(self) + ')'}
+                if self.constructor.name == 'Cond' and 'Simple.where' in track:
+                    return {'ChangeWhereCondition(' + edit_cond(ast) + ', ' + edit_cond(self) + ')'}
+                if self.constructor.name == 'Conds' and 'Simple.where' in track:
+                    return set() if t_new is None or t_old is None else {'ChangeWhereLogicalOperator(' + t_new + ')'}
+                raise ValueError('CHANGE')
+            return set()
+
         def edit_cond(t: AbstractSyntaxTree):
             assert t.constructor.name == 'Cond'
             s = edit_val_unit(t.constructor.sons['valUnit']) + ', '
@@ -66,54 +109,25 @@ class AbstractSyntaxTree:
             return s
 
         assert isinstance(ast, AbstractSyntaxTree)
-        editions = []
+        editions = set()
         try:
             assert self.constructor.name == ast.constructor.name
             for field in self.constructor.fields:
                 self_son, ast_son = self.constructor.sons[field], ast.constructor.sons[field]
-                if self_son is None and ast_son is None:
-                    continue
-                if self_son is not None and ast_son is None:
-                    if field == 'where':
-                        for sub_t in self_son.constructor.sons['cond*']:
-                            editions.append('AddWhereCondition(' + edit_cond(sub_t) + ')')
-                        continue
-                    raise ValueError('ADD!')
-                if self_son is None and ast_son is not None:
-                    raise ValueError('DEL!')
                 if isinstance(self_son, list):
-                    if len(self_son) > len(ast_son):
-                        raise ValueError('ADD!')
-                    if len(self_son) < len(ast_son):
-                        raise ValueError('DEL!')
-                    for i in range(len(self_son)):
-                        if type(self_son[i]) != type(ast_son[i]):
-                            raise ValueError('CHANGE!')
-                        if isinstance(self_son[i], AbstractSyntaxTree):
-                            sub_editions = self_son[i].compare(ast_son[i], track + [self.constructor.name + '.' + field])
-                            if sub_editions != 'OK':
-                                editions += sub_editions
-                        elif self_son[i] != ast_son[i]:
-                            raise ValueError('CHANGE!')
-                elif type(self_son) != type(ast_son):
-                    raise ValueError('CHANGE!')
-                elif isinstance(self_son, AbstractSyntaxTree):
-                    sub_editions = self_son.compare(ast_son, track + [self.constructor.name + '.' + field])
-                    if sub_editions != 'OK':
-                        editions += sub_editions
-                elif self_son != ast_son:
-                    if self.constructor.name == 'ValUnit' and 'Simple.select*' in track:
-                        editions.append('ChangeSelectItem(' + edit_val_unit(ast) + ', ' + edit_val_unit(self) + ')')
-                        break
-                    raise ValueError('CHANGE!')
+                    for i in range(max(len(self_son), len(ast_son))):
+                        if i >= len(self_son):
+                            editions.update(edit_ast_node(None, ast_son[i], field))
+                        elif i >= len(ast_son):
+                            editions.update(edit_ast_node(self_son[i], None, field))
+                        else:
+                            editions.update(edit_ast_node(self_son[i], ast_son[i], field))
+                else:
+                    editions.update(edit_ast_node(self_son, ast_son, field))
         except Exception as e:
             print(e)
-            print()
-            print(ast)
-            print()
-            print(self)
             os._exit(0)
-        return editions if editions else 'OK'
+        return editions
 
     @staticmethod
     def build_sql(sql, db):
@@ -148,8 +162,10 @@ class AbstractSyntaxTree:
         ast = AbstractSyntaxTree('Conds')
         for cond in conds[0::2]:
             ast.constructor.sons['cond*'].append(AbstractSyntaxTree.build_cond(cond, db))
-        for op in conds[1::2]:
-            ast.constructor.sons['op*'].append(op.upper())
+        if len(conds) > 1:
+            for i in range(3, len(conds), 2):
+                assert conds[i] == conds[i - 2]
+            ast.constructor.sons['op'] = conds[1].upper()
         return ast
 
     @staticmethod
