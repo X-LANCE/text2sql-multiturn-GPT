@@ -13,6 +13,6 @@ SPEECH_API_TOKEN = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJoY3o5OSIsIml
 
 AGGS = [None, 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
 
-COND_OPS = [None, 'BETWEEN', '=', '>', '<', '>=', '<=', '!=', 'IN', 'LIKE']
+COND_OPS = [None, 'BETWEEN', '=', '>', '<', '>=', '<=', '!=', 'IN', 'LIKE', 'IS']
 
 OPS = [None, '-', '+', '*', '/']
