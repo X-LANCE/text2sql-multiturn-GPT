@@ -15,11 +15,12 @@ class ASDLConstructor:
     def get_constructor(name):
         fields = {
             'Complete': ['sqlUnit', 'intersect', 'union', 'except'],
-            'Simple': ['select*', 'from', 'where', 'groupBy', 'orderBy'],
+            'Simple': ['select*', 'from', 'where', 'groupBy', 'orderBy', 'limit'],
+            'From': ['tab*', 'join'],
             'Conds': ['cond*', 'op'],
             'Cond': ['valUnit', 'op', 'val1', 'val2'],
             'GroupBy': ['col*', 'having'],
-            'OrderBy': ['valUnit*', 'asc', 'limit'],
+            'OrderBy': ['valUnit*', 'asc'],
             'ValUnit': ['agg', 'distinct', 'op', 'col1', 'col2']
         }
         return ASDLConstructor(name, fields[name])
@@ -57,8 +58,13 @@ class AbstractSyntaxTree:
                     return {'AddRightExcept(' + t_new.unparse() + ')'}
                 if cur_field == 'select*':
                     return {'AddSelectItem(' + t_new.unparse() + ')'}
-                if cur_field == 'from':
-                    return {'AddNestedFromClause(' + t_new.unparse() + ')'}
+                if cur_field == 'join':
+                    result = set()
+                    for son in t_new.constructor.sons['cond*']:
+                        result.add('AddJoinCondition(' + son.unparse() + ')')
+                    return result
+                if t_new.constructor.name == 'Cond' and 'From.join' in track:
+                    return {'AddJoinCondition(' + t_new.unparse() + ')'}
                 if cur_field == 'where':
                     result = set()
                     for son in t_new.constructor.sons['cond*']:
@@ -84,8 +90,6 @@ class AbstractSyntaxTree:
                 if cur_field == 'orderBy':
                     result = ', '.join([son.unparse() for son in t_new.constructor.sons['valUnit*']])
                     result += ', ' + ('ASC' if t_new.constructor.sons['asc'] else 'DESC')
-                    if t_new.constructor.sons['limit'] is not None:
-                        result += ', ' + str(t_new.constructor.sons['limit'])
                     return {'AddOrderBy(' + result + ')'}
                 if t_new.constructor.name == 'ValUnit' and 'Simple.orderBy' in track:
                     return {'AddOrderByItem(' + t_new.unparse() + ')'}
@@ -99,8 +103,10 @@ class AbstractSyntaxTree:
                     return {'DeleteRightExcept'}
                 if t_old.constructor.name == 'ValUnit' and cur_field == 'select*':
                     return {'DeleteSelectItem(' + t_old.unparse() + ')'}
-                if cur_field == 'from':
-                    return {'DeleteNestedFromClause'}
+                if cur_field == 'join':
+                    return {'DeleteJoin'}
+                if self.constructor.name == 'Conds' and 'From.join' in track:
+                    return {'DeleteJoinCondition(' + t_old.unparse() + ')'}
                 if cur_field == 'where':
                     return {'DeleteWhere'}
                 if self.constructor.name == 'Conds' and 'Simple.where' in track:
@@ -117,11 +123,17 @@ class AbstractSyntaxTree:
                     return {'DeleteOrderByItem(' + t_old.unparse() + ')'}
                 raise ValueError('DELETE')
             if isinstance(t_new, AbstractSyntaxTree) and isinstance(t_old, AbstractSyntaxTree):
+                if t_new.constructor.name == 'Complete' and t_old.constructor.name == 'From':
+                    return {'AddNestedFromClause(' + t_new.unparse() + ')'}
+                if t_new.constructor.name == 'From' and t_old.constructor.name == 'Complete':
+                    return {'DeleteNestedFromClause'}
                 result = t_new.compare(t_old, track + [self.constructor.name + '.' + cur_field])
                 if 'ChangeValUnit' in result:
                     result.remove('ChangeValUnit')
                     if self.constructor.name == 'Cond':
-                        if 'Simple.where' in track:
+                        if 'From.join' in track:
+                            result.add('ChangeJoinCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
+                        elif 'Simple.where' in track:
                             result.add('ChangeWhereCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
                         elif 'GroupBy.having' in track:
                             result.add('ChangeHavingCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
@@ -129,10 +141,12 @@ class AbstractSyntaxTree:
             if t_new != t_old:
                 if self.constructor.name == 'ValUnit' and 'Simple.select*' in track:
                     return {'ChangeSelectItem(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                if self.constructor.name == 'Cond' and 'From.join' in track:
+                    return {'ChangeJoinCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                if self.constructor.name == 'Conds' and 'From.join' in track:
+                    return set() if t_new is None or t_old is None else {'ChangeJoinLogicalOperator(' + t_new + ')'}
                 if self.constructor.name == 'Cond' and 'Simple.where' in track:
                     return {'ChangeWhereCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
-                if self.constructor.name == 'ValUnit' and ('Simple.where' in track or 'GroupBy.having' in track):
-                    return {'ChangeValUnit'}
                 if self.constructor.name == 'Conds' and 'Simple.where' in track:
                     return set() if t_new is None or t_old is None else {'ChangeWhereLogicalOperator(' + t_new + ')'}
                 if cur_field == 'col*':
@@ -145,6 +159,8 @@ class AbstractSyntaxTree:
                     return {'ChangeHavingCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if self.constructor.name == 'Conds' and 'GroupBy.having' in track:
                     return set() if t_new is None or t_old is None else {'ChangeHavingLogicalOperator(' + t_new + ')'}
+                if self.constructor.name == 'ValUnit' and ('From.join' in track or 'Simple.where' in track or 'GroupBy.having' in track):
+                    return {'ChangeValUnit'}
                 if self.constructor.name == 'ValUnit' and 'Simple.orderBy' in track:
                     return {'ChangeOrderByItem(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if cur_field == 'asc':
@@ -182,6 +198,8 @@ class AbstractSyntaxTree:
                 if ' IN (' + self.unparse() + ')' in ast.unparse():
                     return {'OnlyRetainNestedCondition'}
             for field in self.constructor.fields:
+                if field == 'tab*':
+                    continue
                 self_son, ast_son = self.constructor.sons[field], ast.constructor.sons[field]
                 if isinstance(self_son, list):
                     for i in range(max(len(self_son), len(ast_son))):
@@ -203,7 +221,7 @@ class AbstractSyntaxTree:
                     old_change_item, new_change_item = get_edit_item(edition_list[i], 0), get_edit_item(edition_list[i], 1)
                 except:
                     continue
-                for key in ['SelectItem', 'WhereCondition', 'HavingCondition']:
+                for key in ['SelectItem', 'JoinCondition', 'WhereCondition', 'HavingCondition']:
                     if edition_list[i].startswith('Change' + key):
                         for j in range(len(edition_list)):
                             if edition_list[j].startswith('Add' + key) and get_edit_item(edition_list[j], 0) == old_change_item:
@@ -232,7 +250,9 @@ class AbstractSyntaxTree:
                     result += ' ' + set_op.upper() + ' ' + self.constructor.sons[set_op].unparse()
         elif self.constructor.name == 'Simple':
             result = 'SELECT ' + ', '.join([son.unparse() for son in self.constructor.sons['select*']])
-            if self.constructor.sons['from']:
+            if self.constructor.sons['from'].constructor.name == 'From':
+                result += ' ' + self.constructor.sons['from'].unparse()
+            else:
                 result += ' FROM (' + self.constructor.sons['from'].unparse() + ')'
             if self.constructor.sons['where']:
                 result += ' WHERE ' + self.constructor.sons['where'].unparse()
@@ -240,6 +260,12 @@ class AbstractSyntaxTree:
                 result += ' ' + self.constructor.sons['groupBy'].unparse()
             if self.constructor.sons['orderBy']:
                 result += ' ' + self.constructor.sons['orderBy'].unparse()
+            if self.constructor.sons['limit'] is not None:
+                result += ' LIMIT ' + str(self.constructor.sons['limit'])
+        elif self.constructor.name == 'From':
+            result = 'FROM ' + ' JOIN '.join(self.constructor.sons['tab*'])
+            if self.constructor.sons['join']:
+                result += ' ON ' + self.constructor.sons['join'].unparse()
         elif self.constructor.name == 'Conds':
             conds = []
             for son in self.constructor.sons['cond*']:
@@ -264,8 +290,6 @@ class AbstractSyntaxTree:
         elif self.constructor.name == 'OrderBy':
             result = 'ORDER BY ' + ', '.join([son.unparse() for son in self.constructor.sons['valUnit*']])
             result += ' ' + ('ASC' if self.constructor.sons['asc'] else 'DESC')
-            if self.constructor.sons['limit'] is not None:
-                result += ' LIMIT ' + str(self.constructor.sons['limit'])
         elif self.constructor.name == 'ValUnit':
             result = self.constructor.sons['col1']
             if self.constructor.sons['op']:
@@ -297,14 +321,26 @@ class AbstractSyntaxTree:
             val_unit[1][2] |= sql_unit['select'][0]
             ast.constructor.sons['select*'].append(AbstractSyntaxTree.build_val_unit(val_unit, db))
         ast.constructor.sons['select*'].sort(key=lambda x: x.unparse())
-        if sql_unit['from']['table_units'][0][0].lower() == 'sql':
-            ast.constructor.sons['from'] = AbstractSyntaxTree.build_sql(sql_unit['from']['table_units'][0][1], db)
+        ast.constructor.sons['from'] = AbstractSyntaxTree.build_from(sql_unit['from'], db)
         if sql_unit['where']:
             ast.constructor.sons['where'] = AbstractSyntaxTree.build_conds(sql_unit['where'], db)
         if sql_unit['groupBy']:
             ast.constructor.sons['groupBy'] = AbstractSyntaxTree.build_group_by(sql_unit['groupBy'], sql_unit['having'], db)
         if sql_unit['orderBy']:
-            ast.constructor.sons['orderBy'] = AbstractSyntaxTree.build_order_by(sql_unit['orderBy'], sql_unit['limit'], db)
+            ast.constructor.sons['orderBy'] = AbstractSyntaxTree.build_order_by(sql_unit['orderBy'], db)
+        ast.constructor.sons['limit'] = sql_unit['limit']
+        return ast
+
+    @staticmethod
+    def build_from(from_clause, db):
+        if from_clause['table_units'][0][0].lower() == 'sql':
+            assert len(from_clause['table_units']) == 1
+            return AbstractSyntaxTree.build_sql(from_clause['table_units'][0][1], db)
+        ast = AbstractSyntaxTree('From')
+        for tab_unit in from_clause['table_units']:
+            ast.constructor.sons['tab*'].append(db['table_names_original'][tab_unit[1]])
+        if from_clause['conds']:
+            ast.constructor.sons['join'] = AbstractSyntaxTree.build_conds(from_clause['conds'], db)
         return ast
 
     @staticmethod
@@ -346,12 +382,11 @@ class AbstractSyntaxTree:
         return ast
 
     @staticmethod
-    def build_order_by(order_by, limit, db):
+    def build_order_by(order_by, db):
         ast = AbstractSyntaxTree('OrderBy')
         for val_unit in order_by[1]:
             ast.constructor.sons['valUnit*'].append(AbstractSyntaxTree.build_val_unit(val_unit, db))
         ast.constructor.sons['asc'] = (order_by[0].lower() == 'asc')
-        ast.constructor.sons['limit'] = limit
         return ast
 
     @staticmethod
