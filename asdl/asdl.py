@@ -54,7 +54,7 @@ class AbstractSyntaxTree:
                 if cur_field == 'union':
                     return {'AddUnion(' + t_new.unparse() + ')'}
                 if cur_field == 'except':
-                    return {'AddExcept(' + t_new.unparse() + ')'}
+                    return {'AddRightExcept(' + t_new.unparse() + ')'}
                 if cur_field == 'select*':
                     return {'AddSelectItem(' + t_new.unparse() + ')'}
                 if cur_field == 'from':
@@ -96,7 +96,7 @@ class AbstractSyntaxTree:
                 if cur_field == 'union':
                     return {'DeleteUnion(' + t_old.unparse() + ')'}
                 if cur_field == 'except':
-                    return {'DeleteExcept'}
+                    return {'DeleteRightExcept'}
                 if t_old.constructor.name == 'ValUnit' and cur_field == 'select*':
                     return {'DeleteSelectItem(' + t_old.unparse() + ')'}
                 if cur_field == 'from':
@@ -168,11 +168,19 @@ class AbstractSyntaxTree:
         editions = set()
         try:
             if self.constructor.name == 'Complete':
-                for set_op in ['intersect', 'union']:
+                for set_op in ['intersect', 'union', 'except']:
                     if self.constructor.sons[set_op] and len(self.constructor.sons[set_op].compare(ast)) == 0:
-                        return {'Add' + set_op.title() + '(' + self.constructor.sons['sqlUnit'].unparse() + ')'}
+                        return {'Add' + ('Left' if set_op == 'except' else '') + set_op.title() + '(' + self.constructor.sons['sqlUnit'].unparse() + ')'}
                     if ast.constructor.sons[set_op] and len(ast.constructor.sons[set_op].compare(self)) == 0:
-                        return {'Delete' + set_op.title() + '(' + ast.constructor.sons['sqlUnit'].unparse() + ')'}
+                        return {'Delete' + ('Left' if set_op == 'except' else '') + set_op.title() + '(' + ast.constructor.sons['sqlUnit'].unparse() + ')'}
+                if ' FROM (' + ast.unparse() + ')' in self.unparse():
+                    return {'TakeAsNestedFromClause'}
+                if ' FROM (' + self.unparse() + ')' in ast.unparse():
+                    return {'OnlyRetainNestedFromClause'}
+                if ' IN (' + ast.unparse() + ')' in self.unparse():
+                    return {'TakeAsNestedCondition'}
+                if ' IN (' + self.unparse() + ')' in ast.unparse():
+                    return {'OnlyRetainNestedCondition'}
             for field in self.constructor.fields:
                 self_son, ast_son = self.constructor.sons[field], ast.constructor.sons[field]
                 if isinstance(self_son, list):
