@@ -1,0 +1,50 @@
+AddIntersect(SQL)
+AddUnion(SQL)
+AddLeftExcept(SQL)
+AddRightExcept(SQL)
+AddSelectItem(item)
+AddFromTable(table)
+AddJoinCondition(condition)
+AddNestedFromClause(SQL)
+AddWhereCondition(condition)
+AddGroupByColumn(column)
+AddHavingCondition(condition)
+AddOrderBy(item*, asc/desc)
+AddOrderByItem(item)
+AddLimit(limit)
+
+DeleteIntersect(SQL)
+DeleteUnion(SQL)
+DeleteLeftExcept
+DeleteRightExcept
+DeleteSelectItem(item)
+DeleteFromTable(table)
+DeleteJoin
+DeleteJoinCondition(condition)
+DeleteNestedFromClause
+DeleteWhere
+DeleteWhereCondition(condition)
+DeleteGroupBy
+DeleteGroupByColumn(column)
+DeleteHaving
+DeleteHavingCondition(condition)
+DeleteOrderBy
+DeleteOrderByItem(item)
+DeleteLimit
+
+ChangeSelectItem(oldItem, newItem)
+ChangeFromTable(oldTable, newTable)
+ChangeJoinCondition(oldCondition, newCondition)
+ChangeWhereCondition(oldCondition, newCondition)
+ChangeWhereLogicalOperator(and/or)
+ChangeGroupByColumn(oldColumn, newColumn)
+ChangeHavingCondition(oldCondition, newCondition)
+ChangeHavingLogicalOperator(and/or)
+ChangeOrderByItem(oldItem, newItem)
+ChangeOrder(asc/desc)
+ChangeLimit(limit)
+
+TakeAsNestedFromClause
+OnlyRetainNestedFromClause
+TakeAsNestedCondition
+OnlyRetainNestedCondition

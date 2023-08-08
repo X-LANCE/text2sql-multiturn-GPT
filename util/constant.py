@@ -16,3 +16,5 @@ AGGS = [None, 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
 COND_OPS = [None, 'BETWEEN', '=', '>', '<', '>=', '<=', '!=', 'IN', 'LIKE', 'IS']
 
 OPS = [None, '-', '+', '*', '/']
+
+SET_OPS = ['intersect', 'union', 'except']

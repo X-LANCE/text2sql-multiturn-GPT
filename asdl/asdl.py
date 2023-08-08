@@ -1,5 +1,5 @@
 import os
-from util.constant import AGGS, COND_OPS, OPS
+from util.constant import AGGS, COND_OPS, OPS, SET_OPS
 
 
 class ASDLConstructor:
@@ -141,6 +141,12 @@ class AbstractSyntaxTree:
             if t_new != t_old:
                 if self.constructor.name == 'ValUnit' and 'Simple.select*' in track:
                     return {'ChangeSelectItem(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                if cur_field == 'tab*':
+                    if t_old is None:
+                        return {'AddFromTable(' + t_new + ')'}
+                    if t_new is None:
+                        return {'DeleteFromTable(' + t_old + ')'}
+                    return {'ChangeFromTable(' + t_old + ', ' + t_new + ')'}
                 if self.constructor.name == 'Cond' and 'From.join' in track:
                     return {'ChangeJoinCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if self.constructor.name == 'Conds' and 'From.join' in track:
@@ -184,7 +190,7 @@ class AbstractSyntaxTree:
         editions = set()
         try:
             if self.constructor.name == 'Complete':
-                for set_op in ['intersect', 'union', 'except']:
+                for set_op in SET_OPS:
                     if self.constructor.sons[set_op] and len(self.constructor.sons[set_op].compare(ast)) == 0:
                         return {'Add' + ('Left' if set_op == 'except' else '') + set_op.title() + '(' + self.constructor.sons['sqlUnit'].unparse() + ')'}
                     if ast.constructor.sons[set_op] and len(ast.constructor.sons[set_op].compare(self)) == 0:
@@ -193,13 +199,12 @@ class AbstractSyntaxTree:
                     return {'TakeAsNestedFromClause'}
                 if ' FROM (' + self.unparse() + ')' in ast.unparse():
                     return {'OnlyRetainNestedFromClause'}
-                if ' IN (' + ast.unparse() + ')' in self.unparse():
-                    return {'TakeAsNestedCondition'}
-                if ' IN (' + self.unparse() + ')' in ast.unparse():
-                    return {'OnlyRetainNestedCondition'}
+                for cond_op in COND_OPS[1:]:
+                    if ' ' + cond_op + ' (' + ast.unparse() + ')' in self.unparse():
+                        return {'TakeAsNestedCondition'}
+                    if ' ' + cond_op + ' (' + self.unparse() + ')' in ast.unparse():
+                        return {'OnlyRetainNestedCondition'}
             for field in self.constructor.fields:
-                if field == 'tab*':
-                    continue
                 self_son, ast_son = self.constructor.sons[field], ast.constructor.sons[field]
                 if isinstance(self_son, list):
                     for i in range(max(len(self_son), len(ast_son))):
@@ -221,7 +226,7 @@ class AbstractSyntaxTree:
                     old_change_item, new_change_item = get_edit_item(edition_list[i], 0), get_edit_item(edition_list[i], 1)
                 except:
                     continue
-                for key in ['SelectItem', 'JoinCondition', 'WhereCondition', 'HavingCondition']:
+                for key in ['SelectItem', 'FromTable', 'JoinCondition', 'WhereCondition', 'HavingCondition']:
                     if edition_list[i].startswith('Change' + key):
                         for j in range(len(edition_list)):
                             if edition_list[j].startswith('Add' + key) and get_edit_item(edition_list[j], 0) == old_change_item:
@@ -245,7 +250,7 @@ class AbstractSyntaxTree:
     def unparse(self):
         if self.constructor.name == 'Complete':
             result = self.constructor.sons['sqlUnit'].unparse()
-            for set_op in ['intersect', 'union', 'except']:
+            for set_op in SET_OPS:
                 if self.constructor.sons[set_op]:
                     result += ' ' + set_op.upper() + ' ' + self.constructor.sons[set_op].unparse()
         elif self.constructor.name == 'Simple':
@@ -306,7 +311,7 @@ class AbstractSyntaxTree:
     def build_sql(sql, db):
         ast = AbstractSyntaxTree('Complete')
         ast.constructor.sons['sqlUnit'] = AbstractSyntaxTree.build_sql_unit(sql, db)
-        for set_op in ['intersect', 'union', 'except']:
+        for set_op in SET_OPS:
             if sql[set_op]:
                 ast.constructor.sons[set_op] = AbstractSyntaxTree.build_sql(sql[set_op], db)
         return ast
@@ -339,6 +344,7 @@ class AbstractSyntaxTree:
         ast = AbstractSyntaxTree('From')
         for tab_unit in from_clause['table_units']:
             ast.constructor.sons['tab*'].append(db['table_names_original'][tab_unit[1]])
+        ast.constructor.sons['tab*'].sort()
         if from_clause['conds']:
             ast.constructor.sons['join'] = AbstractSyntaxTree.build_conds(from_clause['conds'], db)
         return ast
@@ -370,6 +376,12 @@ class AbstractSyntaxTree:
         ast.constructor.sons['op'] = ('NOT ' if cond[0] else '') + COND_OPS[cond[1]]
         ast.constructor.sons['val1'] = get_value(cond[3])
         ast.constructor.sons['val2'] = get_value(cond[4])
+        if isinstance(cond[3], list) and ast.constructor.sons['op'] == '=' and ast.constructor.sons['valUnit'].unparse() > ast.constructor.sons['val1']:
+            assert ast.constructor.sons['valUnit'].constructor.sons['agg'] is None
+            assert not ast.constructor.sons['valUnit'].constructor.sons['distinct']
+            assert ast.constructor.sons['valUnit'].constructor.sons['op'] is None
+            assert ast.constructor.sons['valUnit'].constructor.sons['col2'] is None
+            ast.constructor.sons['valUnit'].constructor.sons['col1'], ast.constructor.sons['val1'] = ast.constructor.sons['val1'], ast.constructor.sons['valUnit'].constructor.sons['col1']
         return ast
 
     @staticmethod
