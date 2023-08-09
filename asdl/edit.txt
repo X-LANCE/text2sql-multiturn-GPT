@@ -1,49 +1,46 @@
 AddIntersect(SQL)
-AddUnion(SQL)
-AddLeftExcept(SQL)
-AddRightExcept(SQL)
-AddSelectItem(item)
-AddFromTable(table)
-AddJoinCondition(condition)
-AddNestedFromClause(SQL)
-AddWhereCondition(condition)
-AddGroupByColumn(column)
-AddHavingCondition(condition)
-AddOrderBy(item*, asc/desc)
-AddOrderByItem(item)
-AddLimit(limit)
-
 DeleteIntersect(SQL)
+AddUnion(SQL)
 DeleteUnion(SQL)
+AddLeftExcept(SQL)
 DeleteLeftExcept
+AddRightExcept(SQL)
 DeleteRightExcept
-DeleteSelectItem(item)
+AddFromTable(table)
 DeleteFromTable(table)
+ChangeFromTable(oldTable, newTable)
+AddJoinCondition(condition)
 DeleteJoin
 DeleteJoinCondition(condition)
+ChangeJoinCondition(oldCondition, newCondition)
+AddNestedFromClause(SQL)
 DeleteNestedFromClause
+AddSelectItem(item)
+DeleteSelectItem(item)
+ChangeSelectItem(oldItem, newItem)
+AddWhereCondition(condition)
 DeleteWhere
 DeleteWhereCondition(condition)
-DeleteGroupBy
-DeleteGroupByColumn(column)
-DeleteHaving
-DeleteHavingCondition(condition)
-DeleteOrderBy
-DeleteOrderByItem(item)
-DeleteLimit
-
-ChangeSelectItem(oldItem, newItem)
-ChangeFromTable(oldTable, newTable)
-ChangeJoinCondition(oldCondition, newCondition)
 ChangeWhereCondition(oldCondition, newCondition)
 ChangeWhereLogicalOperator(and/or)
+AddGroupByColumn(column)
+DeleteGroupBy
+DeleteGroupByColumn(column)
 ChangeGroupByColumn(oldColumn, newColumn)
+AddHavingCondition(condition)
+DeleteHaving
+DeleteHavingCondition(condition)
 ChangeHavingCondition(oldCondition, newCondition)
 ChangeHavingLogicalOperator(and/or)
+AddOrderBy(item*, asc/desc)
+DeleteOrderBy
+AddOrderByItem(item)
+DeleteOrderByItem(item)
 ChangeOrderByItem(oldItem, newItem)
 ChangeOrder(asc/desc)
+AddLimit(limit)
+DeleteLimit
 ChangeLimit(limit)
-
 TakeAsNestedFromClause
 OnlyRetainNestedFromClause
 TakeAsNestedCondition

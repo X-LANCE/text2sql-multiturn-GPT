@@ -22,3 +22,10 @@ def main_args():
     args.log_path += '__shot_num_' + str(args.shot_num)
     args.log_path = os.path.join('log', args.dataset, args.log_path)
     return args
+
+
+def edit_args():
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument('--dataset', default='sparc', type=str, help='dataset name')
+    args = arg_parser.parse_args()
+    return args
