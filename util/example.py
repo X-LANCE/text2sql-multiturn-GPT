@@ -1,5 +1,6 @@
 import json
 import os
+import pickle
 from eval.evaluator import Evaluator
 from torch.utils.data import Dataset
 
@@ -25,8 +26,12 @@ class Example:
     @classmethod
     def load_dataset(cls, dataset_name, choice):
         assert choice in ['train', 'dev']
-        with open(os.path.join('data', dataset_name, choice + '.json'), 'r', encoding='utf-8') as file:
-            dataset = json.load(file)
+        if os.path.exists(os.path.join('data', dataset_name, choice + '.bin')):
+            with open(os.path.join('data', dataset_name, choice + '.bin'), 'rb') as file:
+                dataset = pickle.load(file)
+        else:
+            with open(os.path.join('data', dataset_name, choice + '.json'), 'r', encoding='utf-8') as file:
+                dataset = json.load(file)
         return SQLDataset(dataset)
 
     @classmethod

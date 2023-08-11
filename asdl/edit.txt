@@ -1,46 +1,17 @@
-AddIntersect(SQL)
-DeleteIntersect(SQL)
-AddUnion(SQL)
-DeleteUnion(SQL)
-AddLeftExcept(SQL)
-DeleteLeftExcept
-AddRightExcept(SQL)
-DeleteRightExcept
-AddFromTable(table)
-DeleteFromTable(table)
-ChangeFromTable(oldTable, newTable)
-AddJoinCondition(condition)
-DeleteJoin
-DeleteJoinCondition(condition)
-ChangeJoinCondition(oldCondition, newCondition)
-AddNestedFromClause(SQL)
-DeleteNestedFromClause
-AddSelectItem(item)
-DeleteSelectItem(item)
-ChangeSelectItem(oldItem, newItem)
-AddWhereCondition(condition)
-DeleteWhere
-DeleteWhereCondition(condition)
-ChangeWhereCondition(oldCondition, newCondition)
-ChangeWhereLogicalOperator(and/or)
-AddGroupByColumn(column)
-DeleteGroupBy
-DeleteGroupByColumn(column)
-ChangeGroupByColumn(oldColumn, newColumn)
-AddHavingCondition(condition)
-DeleteHaving
-DeleteHavingCondition(condition)
-ChangeHavingCondition(oldCondition, newCondition)
-ChangeHavingLogicalOperator(and/or)
-AddOrderBy(item*, asc/desc)
-DeleteOrderBy
-AddOrderByItem(item)
-DeleteOrderByItem(item)
-ChangeOrderByItem(oldItem, newItem)
-ChangeOrder(asc/desc)
-AddLimit(limit)
-DeleteLimit
-ChangeLimit(limit)
+EditIUE(intersect/union/except, left/right, SQL)
+EditFromTable(oldTable, newTable)
+EditJoinCondition(oldCondition, newCondition)
+EditJoinLogicalOperator(and/or)
+EditNestedFromClause(SQL)
+EditSelectItem(oldItem, newItem)
+EditWhereCondition(oldCondition, newCondition)
+EditWhereLogicalOperator(and/or)
+EditGroupByColumn(oldColumn, newColumn)
+EditHavingCondition(oldCondition, newCondition)
+EditHavingLogicalOperator(and/or)
+EditOrderByItem(oldItem, newItem)
+EditOrder(asc/desc)
+EditLimit(oldLimit, newLimit)
 TakeAsNestedFromClause
 OnlyRetainNestedFromClause
 TakeAsNestedCondition

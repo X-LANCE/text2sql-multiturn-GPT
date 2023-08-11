@@ -60,20 +60,20 @@ class PromptMaker:
     def get_prompt(self, args, db_id=None, interaction=[], shots=[]):
         if args.gpt in GPT_CHAT_MODELS:
             prompt = [{'role': 'system', 'content': 'Given the database schema, you need to translate the question into the SQL query.'}]
-            for shot in shots:
-                for i, turn in enumerate(shot['interaction']):
+            for i, shot in enumerate(shots):
+                for j, turn in enumerate(shot['interaction']):
                     prompt.append({'role': 'user', 'content': ''})
-                    if i == 0:
+                    if j == 0:
                         prompt[-1]['content'] = 'Database schema:\n' + self.db_prompts[shot['database_id']] + '\n'
                     prompt[-1]['content'] += 'Question: ' + turn['utterance']
                     prompt.append({'role': 'assistant', 'content': turn['query']})
             if db_id and interaction:
-                for i, turn in enumerate(interaction):
+                for j, turn in enumerate(interaction):
                     prompt.append({'role': 'user', 'content': ''})
-                    if i == 0:
+                    if j == 0:
                         prompt[-1]['content'] = 'Database schema:\n' + self.db_prompts[db_id] + '\n'
                     prompt[-1]['content'] += 'Question: ' + turn['utterance']
-                    if i < len(interaction) - 1:
+                    if j < len(interaction) - 1:
                         prompt.append({'role': 'assistant', 'content': turn['query']})
         elif args.gpt in GPT_COMPLETION_MODELS:
             prompt = ''

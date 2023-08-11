@@ -50,133 +50,133 @@ class AbstractSyntaxTree:
             if t_new is None and t_old is None:
                 return set()
             if isinstance(t_new, AbstractSyntaxTree) and t_old is None:
-                if cur_field == 'intersect':
-                    return {'AddIntersect(' + t_new.unparse() + ')'}
-                if cur_field == 'union':
-                    return {'AddUnion(' + t_new.unparse() + ')'}
-                if cur_field == 'except':
-                    return {'AddRightExcept(' + t_new.unparse() + ')'}
+                if cur_field in SET_OPS:
+                    return {'EditIUE(' + cur_field + ', right, ' + t_new.unparse() + ')'}
                 if cur_field == 'select*':
-                    return {'AddSelectItem(' + t_new.unparse() + ')'}
+                    return {'EditSelectItem(-, ' + t_new.unparse() + ')'}
                 if cur_field == 'join':
                     result = set()
                     for son in t_new.constructor.sons['cond*']:
-                        result.add('AddJoinCondition(' + son.unparse() + ')')
+                        result.add('EditJoinCondition(-, ' + son.unparse() + ')')
                     return result
                 if t_new.constructor.name == 'Cond' and 'From.join' in track:
-                    return {'AddJoinCondition(' + t_new.unparse() + ')'}
+                    return {'EditJoinCondition(-, ' + t_new.unparse() + ')'}
                 if cur_field == 'where':
                     result = set()
                     for son in t_new.constructor.sons['cond*']:
-                        result.add('AddWhereCondition(' + son.unparse() + ')')
+                        result.add('EditWhereCondition(-, ' + son.unparse() + ')')
                     return result
                 if t_new.constructor.name == 'Cond' and 'Simple.where' in track:
-                    return {'AddWhereCondition(' + t_new.unparse() + ')'}
+                    return {'EditWhereCondition(-, ' + t_new.unparse() + ')'}
                 if cur_field == 'groupBy':
                     result = set()
                     for son in t_new.constructor.sons['col*']:
-                        result.add('AddGroupByColumn(' + son + ')')
+                        result.add('EditGroupByColumn(-, ' + son + ')')
                     if t_new.constructor.sons['having']:
                         for son in t_new.constructor.sons['having'].constructor.sons['cond*']:
-                            result.add('AddHavingCondition(' + son.unparse() + ')')
+                            result.add('EditHavingCondition(-, ' + son.unparse() + ')')
                     return result
                 if cur_field == 'having':
                     result = set()
                     for son in t_new.constructor.sons['cond*']:
-                        result.add('AddHavingCondition(' + son.unparse() + ')')
+                        result.add('EditHavingCondition(-, ' + son.unparse() + ')')
                     return result
                 if t_new.constructor.name == 'Cond' and 'GroupBy.having' in track:
-                    return {'AddHavingCondition(' + t_new.unparse() + ')'}
+                    return {'EditHavingCondition(-, ' + t_new.unparse() + ')'}
                 if cur_field == 'orderBy':
-                    result = ', '.join([son.unparse() for son in t_new.constructor.sons['valUnit*']])
-                    result += ', ' + ('ASC' if t_new.constructor.sons['asc'] else 'DESC')
-                    return {'AddOrderBy(' + result + ')'}
+                    result = set()
+                    for son in t_new.constructor.sons['valUnit*']:
+                        result.add('EditOrderByItem(-, ' + son.unparse() + ')')
+                    result.add('EditOrder(' + ('ASC' if t_new.constructor.sons['asc'] else 'DESC') + ')')
+                    return result
                 if t_new.constructor.name == 'ValUnit' and 'Simple.orderBy' in track:
-                    return {'AddOrderByItem(' + t_new.unparse() + ')'}
+                    return {'EditOrderByItem(-, ' + t_new.unparse() + ')'}
                 raise ValueError('ADD')
             if t_new is None and isinstance(t_old, AbstractSyntaxTree):
-                if cur_field == 'intersect':
-                    return {'DeleteIntersect(' + t_old.unparse() + ')'}
-                if cur_field == 'union':
-                    return {'DeleteUnion(' + t_old.unparse() + ')'}
-                if cur_field == 'except':
-                    return {'DeleteRightExcept'}
+                if cur_field in SET_OPS:
+                    return {'EditIUE(' + cur_field + ', right, -)'}
                 if t_old.constructor.name == 'ValUnit' and cur_field == 'select*':
-                    return {'DeleteSelectItem(' + t_old.unparse() + ')'}
+                    return {'EditSelectItem(' + t_old.unparse() + ', -)'}
                 if cur_field == 'join':
-                    return {'DeleteJoin'}
+                    result = set()
+                    for son in t_old.constructor.sons['cond*']:
+                        result.add('EditJoinCondition(' + son.unparse() + ', -)')
+                    return result
                 if self.constructor.name == 'Conds' and 'From.join' in track:
-                    return {'DeleteJoinCondition(' + t_old.unparse() + ')'}
+                    return {'EditJoinCondition(' + t_old.unparse() + ', -)'}
                 if cur_field == 'where':
-                    return {'DeleteWhere'}
+                    result = set()
+                    for son in t_old.constructor.sons['cond*']:
+                        result.add('EditWhereCondition(' + son.unparse() + ', -)')
+                    return result
                 if self.constructor.name == 'Conds' and 'Simple.where' in track:
-                    return {'DeleteWhereCondition(' + t_old.unparse() + ')'}
+                    return {'EditWhereCondition(' + t_old.unparse() + ', -)'}
                 if cur_field == 'groupBy':
-                    return {'DeleteGroupBy'}
+                    result = set()
+                    for son in t_old.constructor.sons['col*']:
+                        result.add('EditGroupByColumn(' + son + ', -)')
+                    if t_old.constructor.sons['having']:
+                        for son in t_old.constructor.sons['having'].constructor.sons['cond*']:
+                            result.add('EditHavingCondition(' + son.unparse() + ', -)')
+                    return result
                 if cur_field == 'having':
-                    return {'DeleteHaving'}
+                    result = set()
+                    for son in t_old.constructor.sons['cond*']:
+                        result.add('EditHavingCondition(' + son.unparse() + ', -)')
+                    return result
                 if self.constructor.name == 'Conds' and 'GroupBy.having' in track:
-                    return {'DeleteHavingCondition(' + t_old.unparse() + ')'}
+                    return {'EditHavingCondition(' + t_old.unparse() + ', -)'}
                 if cur_field == 'orderBy':
-                    return {'DeleteOrderBy'}
+                    result = set()
+                    for son in t_old.constructor.sons['valUnit*']:
+                        result.add('EditOrderByItem(' + son.unparse() + ', -)')
+                    return result
                 if t_old.constructor.name == 'ValUnit' and 'Simple.orderBy' in track:
-                    return {'DeleteOrderByItem(' + t_old.unparse() + ')'}
+                    return {'EditOrderByItem(' + t_old.unparse() + ', -)'}
                 raise ValueError('DELETE')
             if isinstance(t_new, AbstractSyntaxTree) and isinstance(t_old, AbstractSyntaxTree):
                 if t_new.constructor.name == 'Complete' and t_old.constructor.name == 'From':
-                    return {'AddNestedFromClause(' + t_new.unparse() + ')'}
+                    return {'EditNestedFromClause(' + t_new.unparse() + ')'}
                 if t_new.constructor.name == 'From' and t_old.constructor.name == 'Complete':
-                    return {'DeleteNestedFromClause'}
+                    return {'EditNestedFromClause(-)'}
                 result = t_new.compare(t_old, track + [self.constructor.name + '.' + cur_field])
-                if 'ChangeValUnit' in result:
-                    result.remove('ChangeValUnit')
+                if 'EditValUnit' in result:
+                    result.remove('EditValUnit')
                     if self.constructor.name == 'Cond':
                         if 'From.join' in track:
-                            result.add('ChangeJoinCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
+                            result.add('EditJoinCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
                         elif 'Simple.where' in track:
-                            result.add('ChangeWhereCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
+                            result.add('EditWhereCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
                         elif 'GroupBy.having' in track:
-                            result.add('ChangeHavingCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
+                            result.add('EditHavingCondition(' + ast.unparse() + ', ' + self.unparse() + ')')
                 return result
             if t_new != t_old:
                 if self.constructor.name == 'ValUnit' and 'Simple.select*' in track:
-                    return {'ChangeSelectItem(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                    return {'EditSelectItem(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if cur_field == 'tab*':
-                    if t_old is None:
-                        return {'AddFromTable(' + t_new + ')'}
-                    if t_new is None:
-                        return {'DeleteFromTable(' + t_old + ')'}
-                    return {'ChangeFromTable(' + t_old + ', ' + t_new + ')'}
+                    return {'EditFromTable(' + (t_old if t_old else '-') + ', ' + (t_new if t_new else '-') + ')'}
                 if self.constructor.name == 'Cond' and 'From.join' in track:
-                    return {'ChangeJoinCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                    return {'EditJoinCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if self.constructor.name == 'Conds' and 'From.join' in track:
-                    return set() if t_new is None or t_old is None else {'ChangeJoinLogicalOperator(' + t_new + ')'}
+                    return set() if t_new is None or t_old is None else {'EditJoinLogicalOperator(' + t_new + ')'}
                 if self.constructor.name == 'Cond' and 'Simple.where' in track:
-                    return {'ChangeWhereCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                    return {'EditWhereCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if self.constructor.name == 'Conds' and 'Simple.where' in track:
-                    return set() if t_new is None or t_old is None else {'ChangeWhereLogicalOperator(' + t_new + ')'}
+                    return set() if t_new is None or t_old is None else {'EditWhereLogicalOperator(' + t_new + ')'}
                 if cur_field == 'col*':
-                    if t_old is None:
-                        return {'AddGroupByColumn(' + t_new + ')'}
-                    if t_new is None:
-                        return {'DeleteGroupByColumn(' + t_old + ')'}
-                    return {'ChangeGroupByColumn(' + t_old + ', ' + t_new + ')'}
+                    return {'EditGroupByColumn(' + (t_old if t_old else '-') + ', ' + (t_new if t_new else '-') + ')'}
                 if self.constructor.name == 'Cond' and 'GroupBy.having' in track:
-                    return {'ChangeHavingCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                    return {'EditHavingCondition(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if self.constructor.name == 'Conds' and 'GroupBy.having' in track:
-                    return set() if t_new is None or t_old is None else {'ChangeHavingLogicalOperator(' + t_new + ')'}
+                    return set() if t_new is None or t_old is None else {'EditHavingLogicalOperator(' + t_new + ')'}
                 if self.constructor.name == 'ValUnit' and ('From.join' in track or 'Simple.where' in track or 'GroupBy.having' in track):
-                    return {'ChangeValUnit'}
+                    return {'EditValUnit'}
                 if self.constructor.name == 'ValUnit' and 'Simple.orderBy' in track:
-                    return {'ChangeOrderByItem(' + ast.unparse() + ', ' + self.unparse() + ')'}
+                    return {'EditOrderByItem(' + ast.unparse() + ', ' + self.unparse() + ')'}
                 if cur_field == 'asc':
-                    return {'ChangeOrder(' + ('ASC' if t_new else 'DESC') + ')'}
+                    return {'EditOrder(' + ('ASC' if t_new else 'DESC') + ')'}
                 if cur_field == 'limit':
-                    if t_old is None:
-                        return {'AddLimit(' + str(t_new) + ')'}
-                    if t_new is None:
-                        return {'DeleteLimit'}
-                    return {'ChangeLimit(' + str(t_new) + ')'}
+                    return {'EditLimit(' + ('-' if t_old is None else str(t_old)) + ', ' + ('-' if t_new is None else str(t_new)) + ')'}
                 raise ValueError('CHANGE')
             return set()
 
@@ -192,9 +192,9 @@ class AbstractSyntaxTree:
             if self.constructor.name == 'Complete':
                 for set_op in SET_OPS:
                     if self.constructor.sons[set_op] and len(self.constructor.sons[set_op].compare(ast)) == 0:
-                        return {'Add' + ('Left' if set_op == 'except' else '') + set_op.title() + '(' + self.constructor.sons['sqlUnit'].unparse() + ')'}
+                        return {'EditIUE(' + set_op + ', left, ' + self.constructor.sons['sqlUnit'].unparse() + ')'}
                     if ast.constructor.sons[set_op] and len(ast.constructor.sons[set_op].compare(self)) == 0:
-                        return {'Delete' + ('Left' if set_op == 'except' else '') + set_op.title() + '(' + ast.constructor.sons['sqlUnit'].unparse() + ')'}
+                        return {'EditIUE(' + set_op + ', left, -)'}
                 if ' FROM (' + ast.unparse() + ')' in self.unparse():
                     return {'TakeAsNestedFromClause'}
                 if ' FROM (' + self.unparse() + ')' in ast.unparse():
@@ -220,31 +220,33 @@ class AbstractSyntaxTree:
             print(e)
             os._exit(0)
         while 1:
-            edition_list, new_edition = list(editions), None
-            for i in range(len(edition_list)):
-                try:
-                    old_change_item, new_change_item = get_edit_item(edition_list[i], 0), get_edit_item(edition_list[i], 1)
-                except:
-                    continue
-                for key in ['SelectItem', 'FromTable', 'JoinCondition', 'WhereCondition', 'HavingCondition']:
-                    if edition_list[i].startswith('Change' + key):
-                        for j in range(len(edition_list)):
-                            if edition_list[j].startswith('Add' + key) and get_edit_item(edition_list[j], 0) == old_change_item:
-                                old_id1, old_id2, new_edition = i, j, 'Add' + key + '(' + new_change_item + ')'
-                                break
-                            if edition_list[j].startswith('Delete' + key) and get_edit_item(edition_list[j], 0) == new_change_item:
-                                old_id1, old_id2, new_edition = i, j, 'Delete' + key + '(' + old_change_item + ')'
-                                break
-                        if new_edition:
+            e_list, e_num = list(editions), len(editions)
+            for key in ['SelectItem', 'FromTable', 'JoinCondition', 'WhereCondition', 'HavingCondition']:
+                new_edition = None
+                for i in range(len(e_list)):
+                    for j in range(len(e_list)):
+                        try:
+                            old_change_item, new_change_item = get_edit_item(e_list[i], 0), get_edit_item(e_list[i], 1)
+                            delete_item, add_item = get_edit_item(e_list[j], 0), get_edit_item(e_list[j], 1)
+                            assert e_list[i].startswith('Edit' + key) and e_list[j].startswith('Edit' + key)
+                            assert old_change_item != '-' and new_change_item != '-'
+                        except:
+                            continue
+                        if add_item == old_change_item and delete_item == '-':
+                            old_id1, old_id2, new_edition = i, j, 'Edit' + key + '(-, ' + new_change_item + ')'
                             break
+                        if delete_item == new_change_item and add_item == '-':
+                            old_id1, old_id2, new_edition = i, j, 'Edit' + key + '(' + old_change_item + ', -)'
+                            break
+                    if new_edition:
+                        break
                 if new_edition:
-                    break
-            if new_edition is None:
+                    e_list.pop(max(old_id1, old_id2))
+                    e_list.pop(min(old_id1, old_id2))
+                    e_list.append(new_edition)
+            editions = set(e_list)
+            if len(editions) == e_num:
                 break
-            edition_list.pop(max(old_id1, old_id2))
-            edition_list.pop(min(old_id1, old_id2))
-            edition_list.append(new_edition)
-            editions = set(edition_list)
         return editions
 
     def unparse(self):
