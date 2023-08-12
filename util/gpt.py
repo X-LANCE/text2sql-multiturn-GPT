@@ -5,7 +5,7 @@ import time
 from util.constant import SPEECH_API_TOKEN
 
 
-def get_response(prompt, args, max_tokens=150):
+def get_response(prompt, args, max_tokens):
     if args.speech_api:
         post_data = {
             'model': args.gpt,

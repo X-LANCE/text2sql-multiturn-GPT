@@ -26,6 +26,10 @@ def save_cached_json_file(filename, content):
 
 def postprocess(response, args, db_id):
     if args.gpt in GPT_CHAT_MODELS:
+        if args.coe:
+            start_idx = response.find('So SQL ' + str(args.shot_num + 1) + '-')
+            assert start_idx >= 0
+            response = response[start_idx:]
         start_idx = response.find('SELECT')
         if start_idx < 0:
             start_idx = response.find('select')
@@ -36,7 +40,7 @@ def postprocess(response, args, db_id):
         if end_idx >= 0:
             original_sql = original_sql[:end_idx]
     elif args.gpt in GPT_COMPLETION_MODELS:
-        original_sql = 'SELECT ' + response
+        pass
     else:
         raise ValueError(f'unknown GPT model {args.gpt}')
     original_sql = ' '.join(original_sql.replace('==', '=').replace('<>', '!=').split())
@@ -78,7 +82,10 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
         for j, turn in enumerate(example['interaction']):
             print(f'Decoding example {i}-{j} ...')
             interaction.append({'utterance': turn['utterance']})
-            response = get_response(prompt_maker.get_prompt(args, db_id, interaction, shots), args)
+            max_tokens, response = 500, None
+            while response is None:
+                response = get_response(prompt_maker.get_prompt(args, db_id, interaction, shots), args, max_tokens)
+                max_tokens -= 50
             sql = postprocess(response, args, db_id)
             if args.coe:
                 interaction[-1]['query'] = response
