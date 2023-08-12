@@ -18,3 +18,24 @@ COND_OPS = [None, 'BETWEEN', '=', '>', '<', '>=', '<=', '!=', 'IN', 'LIKE', 'IS'
 OPS = [None, '-', '+', '*', '/']
 
 SET_OPS = ['intersect', 'union', 'except']
+
+EDIT_RULES = [
+    'EditIUE',
+    'EditFromTable',
+    'EditJoinCondition',
+    'EditJoinLogicalOperator',
+    'EditNestedFromClause',
+    'EditSelectItem',
+    'EditWhereCondition',
+    'EditWhereLogicalOperator',
+    'EditGroupByColumn',
+    'EditHavingCondition',
+    'EditHavingLogicalOperator',
+    'EditOrderByItem',
+    'EditOrder',
+    'EditLimit',
+    'TakeAsNestedFromClause',
+    'OnlyRetainNestedFromClause',
+    'TakeAsNestedCondition',
+    'OnlyRetainNestedCondition'
+]

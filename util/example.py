@@ -2,19 +2,6 @@ import json
 import os
 import pickle
 from eval.evaluator import Evaluator
-from torch.utils.data import Dataset
-
-
-class SQLDataset(Dataset):
-    def __init__(self, examples):
-        super(SQLDataset, self).__init__()
-        self.examples = examples
-
-    def __len__(self):
-        return len(self.examples)
-
-    def __getitem__(self, index):
-        return self.examples[index]
 
 
 class Example:
@@ -32,7 +19,7 @@ class Example:
         else:
             with open(os.path.join('data', dataset_name, choice + '.json'), 'r', encoding='utf-8') as file:
                 dataset = json.load(file)
-        return SQLDataset(dataset)
+        return dataset
 
     @classmethod
     def use_database_testsuite(cls):

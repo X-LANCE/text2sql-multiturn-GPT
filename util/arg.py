@@ -11,6 +11,7 @@ def main_args():
     arg_parser.add_argument('--pf', default='eot', type=str, choices=['no', 'eoc', 'eot'], help='format of primary and foreign keys')
     arg_parser.add_argument('--content', default=3, type=int, help='number of database records')
     arg_parser.add_argument('--shot_num', default=4, type=int, help='number of shots')
+    arg_parser.add_argument('--coe', action='store_true', help='chain of editions')
     arg_parser.add_argument('--speech_api', action='store_true', help='use speech api')
     args = arg_parser.parse_args()
     args.log_path = args.gpt
@@ -20,6 +21,8 @@ def main_args():
     args.log_path += '__' + args.pf + '_pf'
     args.log_path += '__content_' + str(args.content)
     args.log_path += '__shot_num_' + str(args.shot_num)
+    if args.coe:
+        args.log_path += '__coe'
     args.log_path = os.path.join('log', args.dataset, args.log_path)
     return args
 
