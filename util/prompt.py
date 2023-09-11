@@ -59,23 +59,88 @@ class PromptMaker:
             self.db_prompts[db_id] = self.db_prompts[db_id][:-1]
 
     def get_prompt(self, args, db_id=None, interaction=[], shots=[]):
+        def convert_editions_to_prompt(editions):
+            def linearize(clause):
+                if len(clause) == 1:
+                    clause.append('no change is needed')
+                return '\n- '.join(clause)
+
+            from_clause = ['FROM clause:']
+            select_clause = ['SELECT clause:']
+            where_clause = ['WHERE clause:']
+            group_by_clause = ['GROUP BY clause:']
+            order_by_clause = ['ORDER BY clause:']
+            for edition in editions:
+                if edition[0] == 'EditFromTable':
+                    if edition[1] == '-':
+                        from_clause.append('add table ' + edition[2])
+                    elif edition[2] == '-':
+                        from_clause.append('remove table ' + edition[1])
+                    else:
+                        from_clause.append(f'change table {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditJoinCondition':
+                    if edition[1] == '-':
+                        from_clause.append('add JOIN condition ' + edition[2])
+                    elif edition[2] == '-':
+                        from_clause.append('remove JOIN condition ' + edition[1])
+                    else:
+                        from_clause.append(f'change JOIN condition {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditJoinLogicalOperator':
+                    from_clause.append('change JOIN logical operator to ' + edition[1])
+                elif edition[0] == 'EditSelectItem':
+                    if edition[1] == '-':
+                        select_clause.append('add ' + edition[2])
+                    elif edition[2] == '-':
+                        select_clause.append('remove ' + edition[1])
+                    else:
+                        select_clause.append(f'change {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditWhereCondition':
+                    if edition[1] == '-':
+                        where_clause.append('add WHERE condition ' + edition[2])
+                    elif edition[2] == '-':
+                        where_clause.append('remove WHERE condition ' + edition[1])
+                    else:
+                        where_clause.append(f'change WHERE condition {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditWhereLogicalOperator':
+                    where_clause.append('change WHERE logical operator to ' + edition[1])
+                elif edition[0] == 'EditGroupByColumn':
+                    if edition[1] == '-':
+                        group_by_clause.append('add column ' + edition[2])
+                    elif edition[2] == '-':
+                        group_by_clause.append('remove column ' + edition[1])
+                    else:
+                        group_by_clause.append(f'change column {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditHavingCondition':
+                    if edition[1] == '-':
+                        group_by_clause.append('add HAVING condition ' + edition[2])
+                    elif edition[2] == '-':
+                        group_by_clause.append('remove HAVING condition ' + edition[1])
+                    else:
+                        group_by_clause.append(f'change HAVING condition {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditHavingLogicalOperator':
+                    group_by_clause.append('change HAVING logical operator to ' + edition[1])
+                elif edition[0] == 'EditOrderByItem':
+                    if edition[1] == '-':
+                        order_by_clause.append('add ' + edition[2])
+                    elif edition[2] == '-':
+                        order_by_clause.append('remove ' + edition[1])
+                    else:
+                        order_by_clause.append(f'change {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditOrder':
+                    order_by_clause.append('change order to ' + edition[1])
+            return '\n'.join([
+                linearize(from_clause),
+                linearize(select_clause),
+                linearize(where_clause),
+                linearize(group_by_clause)
+            ])
+
         if args.gpt in GPT_CHAT_MODELS:
             prompt = [{'role': 'system', 'content': 'Given the database schema, you need to translate the question into the SQL query.'}]
             if args.coe:
                 prompt[0]['content'] += '\nYou can use following operations to edit SQL:'
                 prompt[0]['content'] += '\n1. EditIUE(intersect/union/except, left/right, SQL): Append SQL to the left/right side of the previous SQL with intersect/union/except keyword. Delete the left/right side of the previous SQL with intersect/union/except keyword if SQL is "-".'
-                prompt[0]['content'] += '\n2. EditFromTable(oldTable, newTable): Replace oldTable with newTable in the FROM clause. Add newTable into the FROM clause if oldTable is "-". Delete oldTable from the FROM clause if newTable is "-".'
-                prompt[0]['content'] += '\n3. EditJoinCondition(oldCondition, newCondition): Replace oldCondition with newCondition in the ON clause. Add newCondition into the ON clause if oldCondition is "-". Delete oldCondition from the ON clause if newCondition is "-".'
-                prompt[0]['content'] += '\n4. EditJoinLogicalOperator(and/or): Edit the logical operator in the ON clause.'
                 prompt[0]['content'] += '\n5. EditNestedFromClause(SQL): Edit the nested FROM clause with SQL. Delete the nested FROM clause if SQL is "-".'
-                prompt[0]['content'] += '\n6. EditSelectItem(oldItem, newItem): Replace oldItem with newItem in the SELECT clause. Add newItem into the SELECT clause if oldItem is "-". Delete oldItem from the SELECT clause if newItem is "-".'
-                prompt[0]['content'] += '\n7. EditWhereCondition(oldCondition, newCondition): Replace oldCondition with newCondition in the WHERE clause. Add newCondition into the WHERE clause if oldCondition is "-". Delete oldCondition from the WHERE clause if newCondition is "-".'
-                prompt[0]['content'] += '\n8. EditWhereLogicalOperator(and/or): Edit the logical operator in the WHERE clause.'
-                prompt[0]['content'] += '\n9. EditGroupByColumn(oldColumn, newColumn): Replace oldColumn with newColumn in the GROUP BY clause. Add newColumn into the GROUP BY clause if oldColumn is "-". Delete oldColumn from the GROUP BY clause if newColumn is "-".'
-                prompt[0]['content'] += '\n10. EditHavingCondition(oldCondition, newCondition): Replace oldCondition with newCondition in the HAVING clause. Add newCondition into the HAVING clause if oldCondition is "-". Delete oldCondition from the HAVING clause if newCondition is "-".'
-                prompt[0]['content'] += '\n11. EditHavingLogicalOperator(and/or): Edit the logical operator in the HAVING clause.'
-                prompt[0]['content'] += '\n12. EditOrderByItem(oldItem, newItem): Replace oldItem with newItem in the ORDER BY clause. Add newItem into the ORDER BY clause if oldItem is "-". Delete oldItem from the ORDER BY clause if newItem is "-".'
-                prompt[0]['content'] += '\n13. EditOrder(asc/desc): Edit the order in the ORDER BY clause.'
                 prompt[0]['content'] += '\n14. EditLimit(oldLimit, newLimit): Replace oldLimit with newLimit in the LIMIT clause. Add newLimit into the LIMIT clause if oldLimit is "-". Delete oldLimit from the LIMIT clause if newLimit is "-".'
                 prompt[0]['content'] += '\n15. TakeAsNestedFromClause: Take the previous SQL as the nested FROM clause for the current SQL.'
                 prompt[0]['content'] += '\n16. OnlyRetainNestedFromClause: Retain the nested FROM clause in the previous SQL as the current SQL.'

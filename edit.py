@@ -6,12 +6,8 @@ from util.arg import edit_args
 from util.constant import EDIT_RULES
 
 
-def get_edition_rule(edition):
-    return edition if edition.find('(') < 0 else edition[:edition.find('(')]
-
-
 def get_editions_weight(editions):
-    return sum([len(edition.split()) for edition in editions])
+    return sum([len(' '.join(edition).split()) for edition in editions])
 
 
 args = edit_args()
@@ -29,7 +25,7 @@ for example in dataset:
             if len(editions) <= 3 and ('editions' not in interaction[i] or get_editions_weight(editions) <= get_editions_weight(interaction[i]['editions'])):
                 interaction[i]['editions'], interaction[i]['prev_id'] = editions, j
         if 'editions' in interaction[i]:
-            interaction[i]['editions'] = sorted(list(interaction[i]['editions']), key=lambda x: EDIT_RULES.index(get_edition_rule(x)))
-            example['edit_rules'].update([get_edition_rule(edition) for edition in interaction[i]['editions']])
+            interaction[i]['editions'] = sorted(list(interaction[i]['editions']), key=lambda x: EDIT_RULES.index(x[0]))
+            example['edit_rules'].update([edition[0] for edition in interaction[i]['editions']])
 with open(os.path.join('data', args.dataset, 'train.bin'), 'wb') as file:
     pickle.dump(dataset, file)
