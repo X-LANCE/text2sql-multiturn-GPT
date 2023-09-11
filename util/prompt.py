@@ -2,6 +2,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
+import pickle
 import random
 import sqlite3
 from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS
@@ -131,21 +132,26 @@ class PromptMaker:
     def get_coe_shots(self, dataset, args):
         if args.shot_num == 0:
             return []
-        best_shots, max_edit_rule_num, valid_cnt = None, -1, 0
-        while valid_cnt < 3:
+        filename = os.path.join(args.log_path, 'shot.bin')
+        if os.path.exists(filename):
+            with open(filename, 'rb') as file:
+                shots = pickle.load(file)
+            return shots
+        while 1:
             shots = set()
             while len(shots) < args.shot_num:
                 shots.add(random.randint(0, len(dataset) - 1))
             shots = [dataset[id] for id in shots]
             if not self.is_valid_shots(shots, args):
                 continue
-            valid_cnt += 1
             edit_rules = set()
             for shot in shots:
                 edit_rules |= shot['edit_rules']
-            if len(edit_rules) > max_edit_rule_num:
-                best_shots, max_edit_rule_num = shots, len(edit_rules)
-        return best_shots
+            if 'EditIUE' in edit_rules and 'TakeAsNestedCondition' in edit_rules:
+                break
+        with open(filename, 'wb') as file:
+            pickle.dump(shots, file)
+        return shots
 
 
 def dict_factory(cursor, row):

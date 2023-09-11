@@ -59,7 +59,8 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
     pred_filename = os.path.join(args.log_path, 'pred.sql')
     if os.path.exists(pred_filename):
         with open(pred_filename, 'r', encoding='utf-8') as pred_file:
-            cached = pred_file.read().count('\n\n') + 1
+            pred_file_content = pred_file.read()
+            cached = pred_file_content.count('\n\n') + 1 if len(pred_file_content) > 0 else 0
         pred_file = open(pred_filename, 'a', encoding='utf-8')
     else:
         cached = 0
