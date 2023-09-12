@@ -5,7 +5,7 @@ import json
 import pickle
 import random
 import sqlite3
-from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS
+from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS
 
 
 class PromptMaker:
@@ -60,6 +60,19 @@ class PromptMaker:
 
     def get_prompt(self, args, db_id=None, interaction=[], shots=[]):
         def convert_editions_to_prompt(editions):
+            if editions[0][0] == 'TakeAsNestedFromClause':
+                assert len(editions[0]) == 1
+                return 'Take the previous SQL as the nested FROM clause for the current SQL.'
+            if editions[0][0] == 'OnlyRetainNestedFromClause':
+                assert len(editions[0]) == 1
+                return 'Retain the nested FROM clause in the previous SQL as the current SQL.'
+            if editions[0][0] == 'TakeAsNestedCondition':
+                assert len(editions[0]) == 2
+                return f'Take the previous SQL as the nested condition for the current SQL. The comparison operator {editions[0][1]} is used.'
+            if editions[0][0] == 'OnlyRetainNestedCondition':
+                assert len(editions[0]) == 1
+                return 'Retain the nested condition in the previous SQL as the current SQL.'
+
             def linearize(clause):
                 if len(clause) == 1:
                     clause.append('no change is needed')
@@ -70,8 +83,11 @@ class PromptMaker:
             where_clause = ['WHERE clause:']
             group_by_clause = ['GROUP BY clause:']
             order_by_clause = ['ORDER BY clause:']
+            limit_clause = ['LIMIT clause:']
+            iue_clause = ['INTERSECT/UNION/EXCEPT:']
             for edition in editions:
                 if edition[0] == 'EditFromTable':
+                    assert len(edition) == 3
                     if edition[1] == '-':
                         from_clause.append('add table ' + edition[2])
                     elif edition[2] == '-':
@@ -79,6 +95,7 @@ class PromptMaker:
                     else:
                         from_clause.append(f'change table {edition[1]} to {edition[2]}')
                 elif edition[0] == 'EditJoinCondition':
+                    assert len(edition) == 3
                     if edition[1] == '-':
                         from_clause.append('add JOIN condition ' + edition[2])
                     elif edition[2] == '-':
@@ -86,8 +103,16 @@ class PromptMaker:
                     else:
                         from_clause.append(f'change JOIN condition {edition[1]} to {edition[2]}')
                 elif edition[0] == 'EditJoinLogicalOperator':
+                    assert len(edition) == 2 and edition[1] in ['AND', 'OR']
                     from_clause.append('change JOIN logical operator to ' + edition[1])
+                elif edition[0] == 'EditNestedFromClause':
+                    assert len(edition) == 2
+                    if edition[1] == '-':
+                        from_clause.append('remove the nested FROM clause')
+                    else:
+                        from_clause.append(f'add the SQL ({edition[1]}) as the nested FROM clause')
                 elif edition[0] == 'EditSelectItem':
+                    assert len(edition) == 3
                     if edition[1] == '-':
                         select_clause.append('add ' + edition[2])
                     elif edition[2] == '-':
@@ -95,6 +120,7 @@ class PromptMaker:
                     else:
                         select_clause.append(f'change {edition[1]} to {edition[2]}')
                 elif edition[0] == 'EditWhereCondition':
+                    assert len(edition) == 3
                     if edition[1] == '-':
                         where_clause.append('add WHERE condition ' + edition[2])
                     elif edition[2] == '-':
@@ -102,8 +128,10 @@ class PromptMaker:
                     else:
                         where_clause.append(f'change WHERE condition {edition[1]} to {edition[2]}')
                 elif edition[0] == 'EditWhereLogicalOperator':
+                    assert len(edition) == 2 and edition[1] in ['AND', 'OR']
                     where_clause.append('change WHERE logical operator to ' + edition[1])
                 elif edition[0] == 'EditGroupByColumn':
+                    assert len(edition) == 3
                     if edition[1] == '-':
                         group_by_clause.append('add column ' + edition[2])
                     elif edition[2] == '-':
@@ -111,6 +139,7 @@ class PromptMaker:
                     else:
                         group_by_clause.append(f'change column {edition[1]} to {edition[2]}')
                 elif edition[0] == 'EditHavingCondition':
+                    assert len(edition) == 3
                     if edition[1] == '-':
                         group_by_clause.append('add HAVING condition ' + edition[2])
                     elif edition[2] == '-':
@@ -118,8 +147,10 @@ class PromptMaker:
                     else:
                         group_by_clause.append(f'change HAVING condition {edition[1]} to {edition[2]}')
                 elif edition[0] == 'EditHavingLogicalOperator':
+                    assert len(edition) == 2 and edition[1] in ['AND', 'OR']
                     group_by_clause.append('change HAVING logical operator to ' + edition[1])
                 elif edition[0] == 'EditOrderByItem':
+                    assert len(edition) == 3
                     if edition[1] == '-':
                         order_by_clause.append('add ' + edition[2])
                     elif edition[2] == '-':
@@ -127,25 +158,36 @@ class PromptMaker:
                     else:
                         order_by_clause.append(f'change {edition[1]} to {edition[2]}')
                 elif edition[0] == 'EditOrder':
+                    assert len(edition) == 2 and edition[1] in ['ASC', 'DESC']
                     order_by_clause.append('change order to ' + edition[1])
+                elif edition[0] == 'EditLimit':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        limit_clause.append('add LIMIT ' + edition[2])
+                    elif edition[2] == '-':
+                        limit_clause.append('remove LIMIT ' + edition[1])
+                    else:
+                        limit_clause.append(f'change LIMIT {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditIUE':
+                    assert len(edition) == 4 and edition[1] in SET_OPS and edition[2] in ['left', 'right']
+                    if edition[3] == '-':
+                        iue_clause.append(f'remove the SQL on the {edition[2]} side of the keyword {edition[1].upper()}')
+                    else:
+                        iue_clause.append(f'{edition[1].upper()}: add the SQL ({edition[3]}) on the {edition[2]} side')
             return '\n'.join([
                 linearize(from_clause),
                 linearize(select_clause),
                 linearize(where_clause),
-                linearize(group_by_clause)
+                linearize(group_by_clause),
+                linearize(order_by_clause),
+                linearize(limit_clause),
+                linearize(iue_clause)
             ])
 
         if args.gpt in GPT_CHAT_MODELS:
             prompt = [{'role': 'system', 'content': 'Given the database schema, you need to translate the question into the SQL query.'}]
             if args.coe:
-                prompt[0]['content'] += '\nYou can use following operations to edit SQL:'
                 prompt[0]['content'] += '\n1. EditIUE(intersect/union/except, left/right, SQL): Append SQL to the left/right side of the previous SQL with intersect/union/except keyword. Delete the left/right side of the previous SQL with intersect/union/except keyword if SQL is "-".'
-                prompt[0]['content'] += '\n5. EditNestedFromClause(SQL): Edit the nested FROM clause with SQL. Delete the nested FROM clause if SQL is "-".'
-                prompt[0]['content'] += '\n14. EditLimit(oldLimit, newLimit): Replace oldLimit with newLimit in the LIMIT clause. Add newLimit into the LIMIT clause if oldLimit is "-". Delete oldLimit from the LIMIT clause if newLimit is "-".'
-                prompt[0]['content'] += '\n15. TakeAsNestedFromClause: Take the previous SQL as the nested FROM clause for the current SQL.'
-                prompt[0]['content'] += '\n16. OnlyRetainNestedFromClause: Retain the nested FROM clause in the previous SQL as the current SQL.'
-                prompt[0]['content'] += '\n17. TakeAsNestedCondition: Take the previous SQL as the nested condition for the current SQL.'
-                prompt[0]['content'] += '\n18. OnlyRetainNestedCondition: Retain the nested condition in the previous SQL as the current SQL.'
             for i, shot in enumerate(shots):
                 for j, turn in enumerate(shot['interaction']):
                     prompt.append({'role': 'user', 'content': ''})
@@ -155,10 +197,10 @@ class PromptMaker:
                         prompt[-1]['content'] += f"Question {i + 1}-{j + 1}: {turn['utterance']}"
                         prompt.append({'role': 'assistant'})
                         if 'editions' in turn:
-                            prompt[-1]['content'] = f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}. Following operations are used:\n"
-                            prompt[-1]['content'] += '\n'.join(turn['editions']) + '\n'
+                            prompt[-1]['content'] = f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}. Following edit operations are used:\n"
+                            prompt[-1]['content'] += convert_editions_to_prompt(turn['editions']) + '\n'
                         else:
-                            prompt[-1]['content'] = f"SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n"
+                            prompt[-1]['content'] = f'SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n'
                         prompt[-1]['content'] += f"So SQL {i + 1}-{j + 1} is:\n{turn['query']}"
                     else:
                         prompt[-1]['content'] += 'Question: ' + turn['utterance']
@@ -179,6 +221,10 @@ class PromptMaker:
         return prompt
 
     def is_valid_shots(self, shots, args):
+        for shot in shots:
+            for turn in shot['interaction']:
+                if 'editions' in turn and len(turn['editions']) == 0:
+                    return False
         prompt = self.get_prompt(args, shots=shots)
         prompt_len = len(prompt) if isinstance(prompt, str) else sum([len(message['content']) for message in prompt])
         return prompt_len < MAX_LENS[args.gpt]
@@ -251,7 +297,7 @@ if __name__ == '__main__':
         {
             'utterance': 'Count all black items in Table.',
             'query': 'SELECT COUNT(*) FROM Table WHERE color = "black"',
-            'editions': ['EditSelectItem(*, COUNT(*))', 'EditWhereCondition(-, Table.color = "black")'],
+            'editions': [('EditSelectItem', '*', 'COUNT(*)'), ('EditWhereCondition', '-', 'Table.color = "black"')],
             'prev_id': 0
         }
     ]
