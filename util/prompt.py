@@ -186,8 +186,6 @@ class PromptMaker:
 
         if args.gpt in GPT_CHAT_MODELS:
             prompt = [{'role': 'system', 'content': 'Given the database schema, you need to translate the question into the SQL query.'}]
-            if args.coe:
-                prompt[0]['content'] += '\n1. EditIUE(intersect/union/except, left/right, SQL): Append SQL to the left/right side of the previous SQL with intersect/union/except keyword. Delete the left/right side of the previous SQL with intersect/union/except keyword if SQL is "-".'
             for i, shot in enumerate(shots):
                 for j, turn in enumerate(shot['interaction']):
                     prompt.append({'role': 'user', 'content': ''})
