@@ -193,12 +193,12 @@ class PromptMaker:
                         prompt[-1]['content'] = 'Database schema:\n' + self.db_prompts[shot['database_id']] + '\n'
                     if args.coe:
                         prompt[-1]['content'] += f"Question {i + 1}-{j + 1}: {turn['utterance']}"
-                        prompt.append({'role': 'assistant'})
+                        prompt.append({'role': 'assistant', 'content': "Let's think step by step.\n"})
                         if 'editions' in turn:
-                            prompt[-1]['content'] = f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}. Following edit operations are used:\n"
+                            prompt[-1]['content'] += f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}.\nFollowing edit operations are used:\n"
                             prompt[-1]['content'] += convert_editions_to_prompt(turn['editions']) + '\n'
                         else:
-                            prompt[-1]['content'] = f'SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n'
+                            prompt[-1]['content'] += f'SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n'
                         prompt[-1]['content'] += f"So SQL {i + 1}-{j + 1} is:\n{turn['query']}"
                     else:
                         prompt[-1]['content'] += 'Question: ' + turn['utterance']
