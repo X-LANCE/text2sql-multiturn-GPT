@@ -195,10 +195,11 @@ class AbstractSyntaxTree:
                 if ' FROM (' + self.unparse() + ')' in ast.unparse():
                     return {('OnlyRetainNestedFromClause',)}
                 for cond_op in COND_OPS[1:]:
-                    if ' ' + cond_op + ' (' + ast.unparse() + ')' in self.unparse():
-                        return {('TakeAsNestedCondition', cond_op)}
-                    if ' ' + cond_op + ' (' + self.unparse() + ')' in ast.unparse():
-                        return {('OnlyRetainNestedCondition',)}
+                    for prefix in [' NOT ', ' ']:
+                        if prefix + cond_op + ' (' + ast.unparse() + ')' in self.unparse():
+                            return {('TakeAsNestedCondition', (prefix + cond_op).strip())}
+                        if prefix + cond_op + ' (' + self.unparse() + ')' in ast.unparse():
+                            return {('OnlyRetainNestedCondition',)}
             for field in self.constructor.fields:
                 self_son, ast_son = self.constructor.sons[field], ast.constructor.sons[field]
                 if isinstance(self_son, list):

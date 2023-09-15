@@ -5,6 +5,7 @@ import json
 import pickle
 import random
 import sqlite3
+from sentence_transformers import util
 from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS
 
 
@@ -220,26 +221,28 @@ class PromptMaker:
 
     def is_valid_shots(self, shots, args):
         for shot in shots:
+            if len(shot['interaction']) == 0:
+                return False
             for turn in shot['interaction']:
                 if 'editions' in turn and len(turn['editions']) == 0:
                     return False
         prompt = self.get_prompt(args, shots=shots)
         prompt_len = len(prompt) if isinstance(prompt, str) else sum([len(message['content']) for message in prompt])
-        return prompt_len < MAX_LENS[args.gpt]
+        return prompt_len < MAX_LENS[args.gpt] * len(shots) / (args.static + args.dynamic)
 
-    def get_shots(self, dataset, args):
-        if args.shot_num == 0:
+    def get_static_shots(self, dataset, args):
+        if args.static == 0:
             return []
         while 1:
             shots = set()
-            while len(shots) < args.shot_num:
+            while len(shots) < args.static:
                 shots.add(random.randint(0, len(dataset) - 1))
             shots = [dataset[id] for id in shots]
             if self.is_valid_shots(shots, args):
                 return shots
 
-    def get_coe_shots(self, dataset, args):
-        if args.shot_num == 0:
+    def get_coe_static_shots(self, dataset, args):
+        if args.static == 0:
             return []
         filename = os.path.join(args.log_path, 'shot.bin')
         if os.path.exists(filename):
@@ -248,7 +251,7 @@ class PromptMaker:
             return shots
         while 1:
             shots = set()
-            while len(shots) < args.shot_num:
+            while len(shots) < args.static:
                 shots.add(random.randint(0, len(dataset) - 1))
             shots = [dataset[id] for id in shots]
             if not self.is_valid_shots(shots, args):
@@ -260,6 +263,26 @@ class PromptMaker:
                 break
         with open(filename, 'wb') as file:
             pickle.dump(shots, file)
+        return shots
+
+    def get_dynamic_shots(self, dataset, encoding, turn_num, args):
+        if args.dynamic == 0:
+            return []
+        all_encodings = []
+        for example in dataset:
+            if len(example['interaction']) > 0:
+                all_encodings.append(example['interaction'][min(turn_num, len(example['interaction']) - 1)]['encoding'])
+            else:
+                all_encodings.append([0.] * len(all_encodings[0]))
+        scores = util.cos_sim(encoding, all_encodings).squeeze(0).tolist()
+        scores = sorted(enumerate(scores), key=lambda x: -x[1])
+        shots = []
+        for item in scores:
+            shots.append(dataset[item[0]])
+            if not self.is_valid_shots(shots, args):
+                shots.pop()
+            elif len(shots) == args.dynamic:
+                break
         return shots
 
 
