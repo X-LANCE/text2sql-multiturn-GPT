@@ -1,9 +1,10 @@
-GPT_CHAT_MODELS = ['gpt-3.5-turbo', 'gpt-4']
+GPT_CHAT_MODELS = ['gpt-3.5-turbo', 'gpt-3.5-turbo-16k', 'gpt-4']
 
 GPT_COMPLETION_MODELS = ['code-davinci-002', 'text-davinci-003']
 
 MAX_LENS = {
     'gpt-3.5-turbo': 7000,
+    'gpt-3.5-turbo-16k': 28000,
     'gpt-4': 14000,
     'code-davinci-002': 14000,
     'text-davinci-003': 7000

@@ -190,7 +190,7 @@ class PromptMaker:
             for i, shot in enumerate(shots):
                 for j, turn in enumerate(shot['interaction']):
                     prompt.append({'role': 'user', 'content': ''})
-                    if j == 0:
+                    if j == 0 and (i == 0 or shot['database_id'] != shots[i - 1]['database_id']):
                         prompt[-1]['content'] = 'Database schema:\n' + self.db_prompts[shot['database_id']] + '\n'
                     if args.coe:
                         prompt[-1]['content'] += f"Question {i + 1}-{j + 1}: {turn['utterance']}"
@@ -233,13 +233,30 @@ class PromptMaker:
     def get_static_shots(self, dataset, args):
         if args.static == 0:
             return []
+        filename = os.path.join(args.log_path, 'shot.bin')
+        if os.path.exists(filename):
+            with open(filename, 'rb') as file:
+                shots = pickle.load(file)
+            return shots
+        all_dbs, valid_dbs = set([example['database_id'] for example in dataset]), []
+        for db in all_dbs:
+            if len(self.db_prompts[db]) < MAX_LENS[args.gpt] / args.db:
+                valid_dbs.append(db)
         while 1:
-            shots = set()
-            while len(shots) < args.static:
-                shots.add(random.randint(0, len(dataset) - 1))
-            shots = [dataset[id] for id in shots]
+            dbs = set()
+            while len(dbs) < args.db:
+                dbs.add(random.choice(valid_dbs))
+            shots = []
+            for db in dbs:
+                cur_dataset, cur_shot_ids = [example for example in dataset if example['database_id'] == db], set()
+                while len(cur_shot_ids) < args.shot_per_db:
+                    cur_shot_ids.add(random.randint(0, len(cur_dataset) - 1))
+                shots += [cur_dataset[id] for id in cur_shot_ids]
             if self.is_valid_shots(shots, args):
-                return shots
+                break
+        with open(filename, 'wb') as file:
+            pickle.dump(shots, file)
+        return shots
 
     def get_coe_static_shots(self, dataset, args):
         if args.static == 0:
@@ -250,19 +267,12 @@ class PromptMaker:
                 shots = pickle.load(file)
             return shots
         while 1:
-            shots = set()
-            while len(shots) < args.static:
-                shots.add(random.randint(0, len(dataset) - 1))
-            shots = [dataset[id] for id in shots]
-            if not self.is_valid_shots(shots, args):
-                continue
-            edit_rules = set()
+            shots, edit_rules = self.get_static_shots(dataset, args), set()
             for shot in shots:
                 edit_rules |= shot['edit_rules']
             if 'EditIUE' in edit_rules and 'TakeAsNestedCondition' in edit_rules:
                 break
-        with open(filename, 'wb') as file:
-            pickle.dump(shots, file)
+            os.remove(filename)
         return shots
 
     def get_dynamic_shots(self, dataset, encoding, turn_num, args):

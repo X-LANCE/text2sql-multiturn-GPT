@@ -12,19 +12,22 @@ def main_args():
     arg_parser.add_argument('--api_doc', action='store_true', help='write schema according to api doc')
     arg_parser.add_argument('--pf', default='eot', type=str, choices=['no', 'eoc', 'eot'], help='format of primary and foreign keys')
     arg_parser.add_argument('--content', default=3, type=int, help='number of database records')
-    arg_parser.add_argument('--static', default=2, type=int, help='number of static shots')
-    arg_parser.add_argument('--dynamic', default=2, type=int, help='number of dynamic shots')
+    arg_parser.add_argument('--db', default=4, type=int, help='number of databases')
+    arg_parser.add_argument('--shot_per_db', default=4, type=int, help='number of shots per database')
+    arg_parser.add_argument('--dynamic', default=0, type=int, help='number of dynamic shots')
     arg_parser.add_argument('--coe', action='store_true', help='chain of editions')
     arg_parser.add_argument('--speech_api', action='store_true', help='use speech api')
     args = arg_parser.parse_args()
     args.device = 'cpu' if args.device < 0 else f'cuda:{args.device}'
+    args.static = args.db * args.shot_per_db
     args.log_path = args.gpt
     args.log_path += '__seed_' + str(args.seed)
     if args.api_doc:
         args.log_path += '__api_doc'
     args.log_path += '__' + args.pf + '_pf'
     args.log_path += '__content_' + str(args.content)
-    args.log_path += '__static_' + str(args.static)
+    args.log_path += '__db_' + str(args.db)
+    args.log_path += '__shot_per_db_' + str(args.shot_per_db)
     args.log_path += '__dynamic_' + str(args.dynamic)
     if args.coe:
         args.log_path += '__coe'
