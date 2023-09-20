@@ -55,6 +55,7 @@ def postprocess(response, args, db_id):
 def decode(train_dataset, dev_dataset, args, etype='all'):
     prompt_maker = PromptMaker(args=args)
     sentence_encoder = SentenceTransformer(os.path.join('plm', args.plm))
+    static_shots = prompt_maker.get_static_shots(train_dataset, args)
     if not os.path.exists(args.log_path):
         os.makedirs(args.log_path)
     pred_filename = os.path.join(args.log_path, 'pred.sql')
@@ -67,11 +68,8 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
         cached = 0
         pred_file = open(pred_filename, 'w', encoding='utf-8')
     if args.coe:
-        static_shots = prompt_maker.get_coe_static_shots(train_dataset, args)
         coe_filename = os.path.join(args.log_path, 'coe.json')
         coes = load_cached_json_file(coe_filename)
-    else:
-        static_shots = prompt_maker.get_static_shots(train_dataset, args)
     for i, example in enumerate(dev_dataset):
         if i < cached:
             continue

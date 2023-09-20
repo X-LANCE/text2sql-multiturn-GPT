@@ -7,6 +7,7 @@ import random
 import sqlite3
 from sentence_transformers import util
 from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS
+from util.gpt import get_response
 
 
 class PromptMaker:
@@ -61,19 +62,6 @@ class PromptMaker:
 
     def get_prompt(self, args, db_id=None, interaction=[], shots=[]):
         def convert_editions_to_prompt(editions):
-            if editions[0][0] == 'TakeAsNestedFromClause':
-                assert len(editions[0]) == 1
-                return 'Take the previous SQL as the nested FROM clause for the current SQL.'
-            if editions[0][0] == 'OnlyRetainNestedFromClause':
-                assert len(editions[0]) == 1
-                return 'Retain the nested FROM clause in the previous SQL as the current SQL.'
-            if editions[0][0] == 'TakeAsNestedCondition':
-                assert len(editions[0]) == 2
-                return f'Take the previous SQL as the nested condition for the current SQL. The comparison operator {editions[0][1]} is used.'
-            if editions[0][0] == 'OnlyRetainNestedCondition':
-                assert len(editions[0]) == 1
-                return 'Retain the nested condition in the previous SQL as the current SQL.'
-
             def linearize(clause):
                 if len(clause) == 1:
                     clause.append('no change is needed')
@@ -175,6 +163,8 @@ class PromptMaker:
                         iue_clause.append(f'remove the SQL on the {edition[2]} side of the keyword {edition[1].upper()}')
                     else:
                         iue_clause.append(f'{edition[1].upper()}: add the SQL ({edition[3]}) on the {edition[2]} side')
+                else:
+                    raise ValueError(f'unknown edit rule {edition[0]}')
             return '\n'.join([
                 linearize(from_clause),
                 linearize(select_clause),
@@ -194,13 +184,16 @@ class PromptMaker:
                         prompt[-1]['content'] = 'Database schema:\n' + self.db_prompts[shot['database_id']] + '\n'
                     if args.coe:
                         prompt[-1]['content'] += f"Question {i + 1}-{j + 1}: {turn['utterance']}"
-                        prompt.append({'role': 'assistant', 'content': "Let's think step by step.\n"})
+                        prompt.append({'role': 'assistant', 'content': "Let's think step by step.\n\n"})
                         if 'editions' in turn:
-                            prompt[-1]['content'] += f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}.\nFollowing edit operations are used:\n"
-                            prompt[-1]['content'] += convert_editions_to_prompt(turn['editions']) + '\n'
+                            prompt[-1]['content'] += f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}.\n\n"
+                            if 'edit_reason' in turn:
+                                prompt[-1]['content'] += turn['edit_reason'] + '\n\n'
+                            prompt[-1]['content'] += 'Therefore, following edit operations are used:\n\n'
+                            prompt[-1]['content'] += convert_editions_to_prompt(turn['editions']) + '\n\n'
                         else:
-                            prompt[-1]['content'] += f'SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n'
-                        prompt[-1]['content'] += f"So SQL {i + 1}-{j + 1} is:\n{turn['query']}"
+                            prompt[-1]['content'] += f'SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n\n'
+                        prompt[-1]['content'] += f"So SQL {i + 1}-{j + 1} is:\n\n{turn['query']}"
                     else:
                         prompt[-1]['content'] += 'Question: ' + turn['utterance']
                         prompt.append({'role': 'assistant', 'content': turn['query']})
@@ -212,6 +205,22 @@ class PromptMaker:
                     prompt[-1]['content'] += f"Question{f' {len(shots) + 1}-{j + 1}' if args.coe else ''}: {turn['utterance']}"
                     if j < len(interaction) - 1:
                         prompt.append({'role': 'assistant', 'content': turn['query']})
+        elif args.gpt in GPT_COMPLETION_MODELS:
+            prompt = ''
+            pass
+        else:
+            raise ValueError(f'unknown GPT model {args.gpt}')
+        return prompt
+
+    def get_prompt_edit_reason(self, args, bg_questions, prev_question, cur_question):
+        if args.gpt in GPT_CHAT_MODELS:
+            prompt = [
+                {'role': 'system', 'content': 'You need to state the difference between the previous question and the current question.'},
+                {'role': 'user', 'content': ''}
+            ]
+            for i, q in enumerate(bg_questions):
+                prompt[-1]['content'] += f'Background question {i + 1}: {q}\n'
+            prompt[-1]['content'] += f'Previous question: {prev_question}\nCurrent question: {cur_question}'
         elif args.gpt in GPT_COMPLETION_MODELS:
             prompt = ''
             pass
@@ -254,25 +263,21 @@ class PromptMaker:
                 shots += [cur_dataset[id] for id in cur_shot_ids]
             if self.is_valid_shots(shots, args):
                 break
+        print('Generating reasons ...')
+        for shot in shots:
+            interaction = shot['interaction']
+            for i in range(len(interaction)):
+                questions, cur_idx = [], i
+                while 1:
+                    questions.append(interaction[cur_idx]['utterance'])
+                    if 'prev_id' not in interaction[cur_idx]:
+                        break
+                    cur_idx = interaction[cur_idx]['prev_id']
+                if len(questions) > 1:
+                    prompt = self.get_prompt_edit_reason(args, list(reversed(questions[2:])), questions[1], questions[0])
+                    interaction[i]['edit_reason'] = get_response(prompt, args, 1000)
         with open(filename, 'wb') as file:
             pickle.dump(shots, file)
-        return shots
-
-    def get_coe_static_shots(self, dataset, args):
-        if args.static == 0:
-            return []
-        filename = os.path.join(args.log_path, 'shot.bin')
-        if os.path.exists(filename):
-            with open(filename, 'rb') as file:
-                shots = pickle.load(file)
-            return shots
-        while 1:
-            shots, edit_rules = self.get_static_shots(dataset, args), set()
-            for shot in shots:
-                edit_rules |= shot['edit_rules']
-            if 'EditIUE' in edit_rules and 'TakeAsNestedCondition' in edit_rules:
-                break
-            os.remove(filename)
         return shots
 
     def get_dynamic_shots(self, dataset, encoding, turn_num, args):
@@ -329,6 +334,7 @@ if __name__ == '__main__':
             'utterance': 'Count all black items in Table.',
             'query': 'SELECT COUNT(*) FROM Table WHERE color = "black"',
             'editions': [('EditSelectItem', '*', 'COUNT(*)'), ('EditWhereCondition', '-', 'Table.color = "black"')],
+            'edit_reason': 'The current question asks for the number of items with black color.',
             'prev_id': 0
         }
     ]

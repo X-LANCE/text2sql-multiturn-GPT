@@ -190,16 +190,6 @@ class AbstractSyntaxTree:
                         return {('EditIUE', set_op, 'left', self.constructor.sons['sqlUnit'].unparse())}
                     if ast.constructor.sons[set_op] and len(ast.constructor.sons[set_op].compare(self)) == 0:
                         return {('EditIUE', set_op, 'left', '-')}
-                if ' FROM (' + ast.unparse() + ')' in self.unparse():
-                    return {('TakeAsNestedFromClause',)}
-                if ' FROM (' + self.unparse() + ')' in ast.unparse():
-                    return {('OnlyRetainNestedFromClause',)}
-                for cond_op in COND_OPS[1:]:
-                    for prefix in [' NOT ', ' ']:
-                        if prefix + cond_op + ' (' + ast.unparse() + ')' in self.unparse():
-                            return {('TakeAsNestedCondition', (prefix + cond_op).strip())}
-                        if prefix + cond_op + ' (' + self.unparse() + ')' in ast.unparse():
-                            return {('OnlyRetainNestedCondition',)}
             for field in self.constructor.fields:
                 self_son, ast_son = self.constructor.sons[field], ast.constructor.sons[field]
                 if isinstance(self_son, list):
