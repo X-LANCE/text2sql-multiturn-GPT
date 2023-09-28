@@ -239,31 +239,7 @@ class PromptMaker:
         prompt_len = len(prompt) if isinstance(prompt, str) else sum([len(message['content']) for message in prompt])
         return prompt_len < MAX_LENS[args.gpt] * len(shots) / (args.static + args.dynamic)
 
-    def get_static_shots(self, dataset, args):
-        if args.static == 0:
-            return []
-        filename = os.path.join(args.log_path, 'shot.bin')
-        if os.path.exists(filename):
-            with open(filename, 'rb') as file:
-                shots = pickle.load(file)
-            return shots
-        all_dbs, valid_dbs = set([example['database_id'] for example in dataset]), []
-        for db in all_dbs:
-            if len(self.db_prompts[db]) < MAX_LENS[args.gpt] / args.db:
-                valid_dbs.append(db)
-        while 1:
-            dbs = set()
-            while len(dbs) < args.db:
-                dbs.add(random.choice(valid_dbs))
-            shots = []
-            for db in dbs:
-                cur_dataset, cur_shot_ids = [example for example in dataset if example['database_id'] == db], set()
-                while len(cur_shot_ids) < args.shot_per_db:
-                    cur_shot_ids.add(random.randint(0, len(cur_dataset) - 1))
-                shots += [cur_dataset[id] for id in cur_shot_ids]
-            if self.is_valid_shots(shots, args):
-                break
-        print('Generating reasons ...')
+    def get_edit_reasons_for_shots(self, shots, args):
         for shot in shots:
             interaction = shot['interaction']
             for i in range(len(interaction)):
@@ -276,6 +252,27 @@ class PromptMaker:
                 if len(questions) > 1:
                     prompt = self.get_prompt_edit_reason(args, list(reversed(questions[2:])), questions[1], questions[0])
                     interaction[i]['edit_reason'] = get_response(prompt, args, 1000)
+        return shots
+
+    def get_static_shots(self, dataset, args):
+        if args.static == 0:
+            return []
+        filename = os.path.join(args.log_path, 'shot.bin')
+        if os.path.exists(filename):
+            with open(filename, 'rb') as file:
+                shots = pickle.load(file)
+            return shots
+        all_dbs, valid_dbs = set([example['database_id'] for example in dataset]), []
+        for db in all_dbs:
+            if sum([int(example['database_id'] == db) for example in dataset]) >= args.shot_per_db and len(self.db_prompts[db]) < MAX_LENS[args.gpt] / args.db:
+                valid_dbs.append(db)
+        while 1:
+            dbs, shots = random.sample(valid_dbs, args.db), []
+            for db in dbs:
+                shots += random.sample([example for example in dataset if example['database_id'] == db], args.shot_per_db)
+            if self.is_valid_shots(shots, args):
+                break
+        shots = self.get_edit_reasons_for_shots(shots, args)
         with open(filename, 'wb') as file:
             pickle.dump(shots, file)
         return shots
@@ -298,7 +295,7 @@ class PromptMaker:
                 shots.pop()
             elif len(shots) == args.dynamic:
                 break
-        return shots
+        return self.get_edit_reasons_for_shots(sorted(shots, key=lambda x: x['database_id']), args)
 
 
 def dict_factory(cursor, row):
