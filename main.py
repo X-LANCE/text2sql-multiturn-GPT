@@ -82,6 +82,7 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
         for j, turn in enumerate(example['interaction']):
             print(f'Decoding example {i}-{j} ...')
             interaction.append({'utterance': turn['utterance']})
+            prompt_maker.update_db_content_scores(db_id, turn['utterance'], j)
             encoding = sentence_encoder.encode(
                 '\n'.join([item['utterance'] for item in interaction]),
                 batch_size=1,
