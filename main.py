@@ -43,7 +43,7 @@ def postprocess(response, args, db_id):
         pass
     else:
         raise ValueError(f'unknown GPT model {args.gpt}')
-    original_sql = ' '.join(original_sql.replace('==', '=').replace('<>', '!=').split())
+    original_sql = ' '.join(original_sql.replace('==', '=').replace('<>', '!=').strip(';').split())
     original_sql = original_sql.replace('INNER JOIN', 'JOIN').replace('inner join', 'join')
     original_sql = original_sql.replace('LEFT JOIN', 'JOIN').replace('left join', 'join')
     sql = original_sql
@@ -82,7 +82,8 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
         for j, turn in enumerate(example['interaction']):
             print(f'Decoding example {i}-{j} ...')
             interaction.append({'utterance': turn['utterance']})
-            prompt_maker.update_db_content_scores(db_id, turn['utterance'], j)
+            if args.dca:
+                prompt_maker.update_db_content_scores(db_id, turn['utterance'], j)
             encoding = sentence_encoder.encode(
                 '\n'.join([item['utterance'] for item in interaction]),
                 batch_size=1,

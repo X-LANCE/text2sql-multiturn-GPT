@@ -86,9 +86,9 @@ class PromptMaker:
         for i in range(len(tabs)):
             prompt += self.db_prompts[db_id][tabs[i]]['text'] + '\n'
             contents = self.db_prompts[db_id][tabs[i]]['contents']
-            scores = sorted(enumerate(self.db_prompts[db_id][tabs[i]]['scores']), key=lambda x: (-x[1], x[0]))
             c_num = min(args.content, len(contents))
             if c_num > 0:
+                scores = sorted(enumerate(self.db_prompts[db_id][tabs[i]]['scores']), key=lambda x: (-x[1], x[0]))
                 prompt += '/*\n'
                 prompt += f"{c_num} example row{'s' if c_num > 1 else ''} from table {tabs[i]}:\n"
                 prompt += '\t'.join([col[1] for col in cols if col[0] == i]) + '\n'
@@ -277,6 +277,8 @@ class PromptMaker:
         return prompt_len < MAX_LENS[args.gpt] * len(shots) / (args.static + args.dynamic)
 
     def get_edit_reasons_for_shots(self, shots, args):
+        if not args.coe:
+            return shots
         for shot in shots:
             interaction = shot['interaction']
             for i in range(len(interaction)):
@@ -307,7 +309,7 @@ class PromptMaker:
             dbs, shots = random.sample(valid_dbs, args.db), []
             for db in dbs:
                 shots += random.sample([example for example in dataset if example['database_id'] == db], args.shot_per_db)
-            if self.is_valid_shots(shots, args):
+            if self.is_valid_shots(shots, args) and sum([int(shot['interaction'][0]['query'].lower().startswith('select *')) for shot in shots]) / len(shots) >= 0.5:
                 break
         shots = self.get_edit_reasons_for_shots(shots, args)
         with open(filename, 'wb') as file:
