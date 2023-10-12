@@ -1,11 +1,15 @@
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import editdistance as edt
 import json
 import pickle
 import random
 import sqlite3
-from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS
+from nltk import word_tokenize
+from sentence_transformers import util
+from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS
+from util.gpt import get_response
 
 
 class PromptMaker:
@@ -17,84 +21,216 @@ class PromptMaker:
             db_id = db['db_id']
             tabs = db['table_names_original']
             cols = db['column_names_original']
-            self.db_prompts[db_id] = ''
+            self.db_prompts[db_id] = {'tabs': tabs, 'cols': cols}
             for i in range(len(tabs)):
+                self.db_prompts[db_id][tabs[i]] = {'text': '', 'contents': []}
                 if args.api_doc:
-                    self.db_prompts[db_id] += f"# {tabs[i]}({', '.join([col[1] for col in cols if col[0] == i])})\n"
+                    self.db_prompts[db_id][tabs[i]]['text'] += f"# {tabs[i]}({', '.join([col[1] for col in cols if col[0] == i])})"
                 else:
-                    self.db_prompts[db_id] += f'create table {tabs[i]} (\n'
+                    self.db_prompts[db_id][tabs[i]]['text'] += f'create table {tabs[i]} (\n'
                     for j in range(len(cols)):
                         if cols[j][0] == i:
-                            self.db_prompts[db_id] += f"    {cols[j][1]} {db['column_types'][j]}"
+                            self.db_prompts[db_id][tabs[i]]['text'] += f"    {cols[j][1]} {db['column_types'][j]}"
                             if args.pf == 'eoc':
                                 if j in db['primary_keys']:
-                                    self.db_prompts[db_id] += ' primary key'
+                                    self.db_prompts[db_id][tabs[i]]['text'] += ' primary key'
                                 for fk in db['foreign_keys']:
                                     if fk[0] == j:
-                                        self.db_prompts[db_id] += f' references {tabs[cols[fk[1]][0]]}({cols[fk[1]][1]})'
-                            self.db_prompts[db_id] += ',\n'
+                                        self.db_prompts[db_id][tabs[i]]['text'] += f' references {tabs[cols[fk[1]][0]]}({cols[fk[1]][1]})'
+                            self.db_prompts[db_id][tabs[i]]['text'] += ',\n'
                     if args.pf == 'eot':
                         pks = [cols[pk][1] for pk in db['primary_keys'] if cols[pk][0] == i]
                         if len(pks) > 0:
-                            self.db_prompts[db_id] += f"    primary key ({', '.join(pks)}),\n"
+                            self.db_prompts[db_id][tabs[i]]['text'] += f"    primary key ({', '.join(pks)}),\n"
                         for fk in db['foreign_keys']:
                             if cols[fk[0]][0] == i:
-                                self.db_prompts[db_id] += f'    foreign key ({cols[fk[0]][1]}) references {tabs[cols[fk[1]][0]]}({cols[fk[1]][1]}),\n'
-                    self.db_prompts[db_id] = self.db_prompts[db_id][:-2] + '\n)\n'
+                                self.db_prompts[db_id][tabs[i]]['text'] += f'    foreign key ({cols[fk[0]][1]}) references {tabs[cols[fk[1]][0]]}({cols[fk[1]][1]}),\n'
+                    self.db_prompts[db_id][tabs[i]]['text'] = self.db_prompts[db_id][tabs[i]]['text'][:-2] + '\n)'
                 db_path = os.path.join('data', args.dataset, 'database', db_id, db_id + '.sqlite')
                 if args.content > 0 and os.path.exists(db_path):
                     conn = sqlite3.connect(db_path)
                     conn.row_factory = dict_factory
+                    conn.text_factory = lambda x: str(x, 'utf-8', 'ignore')
                     cursor = conn.cursor()
-                    db_contents = cursor.execute(f'SELECT * FROM {tabs[i]} LIMIT {args.content}').fetchall()
-                    self.db_prompts[db_id] += '/*\n'
-                    self.db_prompts[db_id] += f"{len(db_contents)} example row{'s' if len(db_contents) > 1 else ''} from table {tabs[i]}:\n"
-                    self.db_prompts[db_id] += '\t'.join([col[1] for col in cols if col[0] == i]) + '\n'
-                    for record in db_contents:
-                        self.db_prompts[db_id] += '\t'.join([str(record[col[1]]) for col in cols if col[0] == i]) + '\n'
-                    self.db_prompts[db_id] += '*/\n'
-            if args.api_doc and args.pf != 'no':
-                self.db_prompts[db_id] += f"# primary keys = [{', '.join([tabs[cols[pk][0]] + '.' + cols[pk][1] for pk in db['primary_keys']])}]\n"
-                self.db_prompts[db_id] += f"# foreign keys = [{', '.join([tabs[cols[fk[0]][0]] + '.' + cols[fk[0]][1] + ' = ' + tabs[cols[fk[1]][0]] + '.' + cols[fk[1]][1] for fk in db['foreign_keys']])}]\n"
-            self.db_prompts[db_id] = self.db_prompts[db_id][:-1]
+                    self.db_prompts[db_id][tabs[i]]['contents'] = cursor.execute(f'SELECT * FROM {tabs[i]}').fetchall()
+                    self.db_prompts[db_id][tabs[i]]['scores'] = [0.] * len(self.db_prompts[db_id][tabs[i]]['contents'])
+
+    def update_db_content_scores(self, db_id, question, turn_num):
+        cur_scores = {}
+        for tab in self.db_prompts[db_id]['tabs']:
+            cur_scores[tab] = []
+            for i in range(len(self.db_prompts[db_id][tab]['scores'])):
+                cur_scores[tab].append(0.)
+                if turn_num > 0:
+                    self.db_prompts[db_id][tab]['scores'][i] /= 2
+                else:
+                    self.db_prompts[db_id][tab]['scores'][i] = 0.
+        tokens = word_tokenize(question)
+        n_gram = 6
+        while n_gram > 0:
+            for i in range(len(tokens) - n_gram + 1):
+                phrase = ' '.join(tokens[i:i + n_gram])
+                for tab in self.db_prompts[db_id]['tabs']:
+                    for j, record in enumerate(self.db_prompts[db_id][tab]['contents']):
+                        for col in record:
+                            cur_scores[tab][j] = max(cur_scores[tab][j], 1 - edt.eval(phrase, record[col]) / (len(phrase) + len(record[col])))
+            n_gram -= 1
+        for tab in self.db_prompts[db_id]['tabs']:
+            for i in range(len(self.db_prompts[db_id][tab]['scores'])):
+                self.db_prompts[db_id][tab]['scores'][i] += cur_scores[tab][i]
+
+    def get_db_prompt(self, args, db_id):
+        prompt = ''
+        tabs = self.db_prompts[db_id]['tabs']
+        cols = self.db_prompts[db_id]['cols']
+        for i in range(len(tabs)):
+            prompt += self.db_prompts[db_id][tabs[i]]['text'] + '\n'
+            contents = self.db_prompts[db_id][tabs[i]]['contents']
+            c_num = min(args.content, len(contents))
+            if c_num > 0:
+                scores = sorted(enumerate(self.db_prompts[db_id][tabs[i]]['scores']), key=lambda x: (-x[1], x[0]))
+                prompt += '/*\n'
+                prompt += f"{c_num} example row{'s' if c_num > 1 else ''} from table {tabs[i]}:\n"
+                prompt += '\t'.join([col[1] for col in cols if col[0] == i]) + '\n'
+                for item in scores[:c_num]:
+                    prompt += '\t'.join([contents[item[0]][col[1]] for col in cols if col[0] == i]) + '\n'
+                prompt += '*/\n'
+        return prompt.strip()
 
     def get_prompt(self, args, db_id=None, interaction=[], shots=[]):
+        def convert_editions_to_prompt(editions):
+            def linearize(clause):
+                if len(clause) == 1:
+                    clause.append('no change is needed')
+                return '\n- '.join(clause)
+
+            from_clause = ['FROM clause:']
+            select_clause = ['SELECT clause:']
+            where_clause = ['WHERE clause:']
+            group_by_clause = ['GROUP BY clause:']
+            order_by_clause = ['ORDER BY clause:']
+            limit_clause = ['LIMIT clause:']
+            iue_clause = ['INTERSECT/UNION/EXCEPT:']
+            for edition in editions:
+                if edition[0] == 'EditFromTable':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        from_clause.append('add table ' + edition[2])
+                    elif edition[2] == '-':
+                        from_clause.append('remove table ' + edition[1])
+                    else:
+                        from_clause.append(f'change table {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditJoinCondition':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        from_clause.append('add JOIN condition ' + edition[2])
+                    elif edition[2] == '-':
+                        from_clause.append('remove JOIN condition ' + edition[1])
+                    else:
+                        from_clause.append(f'change JOIN condition {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditJoinLogicalOperator':
+                    assert len(edition) == 2 and edition[1] in ['AND', 'OR']
+                    from_clause.append('change JOIN logical operator to ' + edition[1])
+                elif edition[0] == 'EditNestedFromClause':
+                    assert len(edition) == 2
+                    if edition[1] == '-':
+                        from_clause.append('remove the nested FROM clause')
+                    else:
+                        from_clause.append(f'add the SQL ({edition[1]}) as the nested FROM clause')
+                elif edition[0] == 'EditSelectItem':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        select_clause.append('add ' + edition[2])
+                    elif edition[2] == '-':
+                        select_clause.append('remove ' + edition[1])
+                    else:
+                        select_clause.append(f'change {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditWhereCondition':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        where_clause.append('add WHERE condition ' + edition[2])
+                    elif edition[2] == '-':
+                        where_clause.append('remove WHERE condition ' + edition[1])
+                    else:
+                        where_clause.append(f'change WHERE condition {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditWhereLogicalOperator':
+                    assert len(edition) == 2 and edition[1] in ['AND', 'OR']
+                    where_clause.append('change WHERE logical operator to ' + edition[1])
+                elif edition[0] == 'EditGroupByColumn':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        group_by_clause.append('add column ' + edition[2])
+                    elif edition[2] == '-':
+                        group_by_clause.append('remove column ' + edition[1])
+                    else:
+                        group_by_clause.append(f'change column {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditHavingCondition':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        group_by_clause.append('add HAVING condition ' + edition[2])
+                    elif edition[2] == '-':
+                        group_by_clause.append('remove HAVING condition ' + edition[1])
+                    else:
+                        group_by_clause.append(f'change HAVING condition {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditHavingLogicalOperator':
+                    assert len(edition) == 2 and edition[1] in ['AND', 'OR']
+                    group_by_clause.append('change HAVING logical operator to ' + edition[1])
+                elif edition[0] == 'EditOrderByItem':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        order_by_clause.append('add ' + edition[2])
+                    elif edition[2] == '-':
+                        order_by_clause.append('remove ' + edition[1])
+                    else:
+                        order_by_clause.append(f'change {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditOrder':
+                    assert len(edition) == 2 and edition[1] in ['ASC', 'DESC']
+                    order_by_clause.append('change order to ' + edition[1])
+                elif edition[0] == 'EditLimit':
+                    assert len(edition) == 3
+                    if edition[1] == '-':
+                        limit_clause.append('add LIMIT ' + edition[2])
+                    elif edition[2] == '-':
+                        limit_clause.append('remove LIMIT ' + edition[1])
+                    else:
+                        limit_clause.append(f'change LIMIT {edition[1]} to {edition[2]}')
+                elif edition[0] == 'EditIUE':
+                    assert len(edition) == 4 and edition[1] in SET_OPS and edition[2] in ['left', 'right']
+                    if edition[3] == '-':
+                        iue_clause.append(f'remove the SQL on the {edition[2]} side of the keyword {edition[1].upper()}')
+                    else:
+                        iue_clause.append(f'{edition[1].upper()}: add the SQL ({edition[3]}) on the {edition[2]} side')
+                else:
+                    raise ValueError(f'unknown edit rule {edition[0]}')
+            return '\n'.join([
+                linearize(from_clause),
+                linearize(select_clause),
+                linearize(where_clause),
+                linearize(group_by_clause),
+                linearize(order_by_clause),
+                linearize(limit_clause),
+                linearize(iue_clause)
+            ])
+
         if args.gpt in GPT_CHAT_MODELS:
             prompt = [{'role': 'system', 'content': 'Given the database schema, you need to translate the question into the SQL query.'}]
-            if args.coe:
-                prompt[0]['content'] += '\nYou can use following operations to edit SQL:'
-                prompt[0]['content'] += '\n1. EditIUE(intersect/union/except, left/right, SQL): Append SQL to the left/right side of the previous SQL with intersect/union/except keyword. Delete the left/right side of the previous SQL with intersect/union/except keyword if SQL is "-".'
-                prompt[0]['content'] += '\n2. EditFromTable(oldTable, newTable): Replace oldTable with newTable in the FROM clause. Add newTable into the FROM clause if oldTable is "-". Delete oldTable from the FROM clause if newTable is "-".'
-                prompt[0]['content'] += '\n3. EditJoinCondition(oldCondition, newCondition): Replace oldCondition with newCondition in the ON clause. Add newCondition into the ON clause if oldCondition is "-". Delete oldCondition from the ON clause if newCondition is "-".'
-                prompt[0]['content'] += '\n4. EditJoinLogicalOperator(and/or): Edit the logical operator in the ON clause.'
-                prompt[0]['content'] += '\n5. EditNestedFromClause(SQL): Edit the nested FROM clause with SQL. Delete the nested FROM clause if SQL is "-".'
-                prompt[0]['content'] += '\n6. EditSelectItem(oldItem, newItem): Replace oldItem with newItem in the SELECT clause. Add newItem into the SELECT clause if oldItem is "-". Delete oldItem from the SELECT clause if newItem is "-".'
-                prompt[0]['content'] += '\n7. EditWhereCondition(oldCondition, newCondition): Replace oldCondition with newCondition in the WHERE clause. Add newCondition into the WHERE clause if oldCondition is "-". Delete oldCondition from the WHERE clause if newCondition is "-".'
-                prompt[0]['content'] += '\n8. EditWhereLogicalOperator(and/or): Edit the logical operator in the WHERE clause.'
-                prompt[0]['content'] += '\n9. EditGroupByColumn(oldColumn, newColumn): Replace oldColumn with newColumn in the GROUP BY clause. Add newColumn into the GROUP BY clause if oldColumn is "-". Delete oldColumn from the GROUP BY clause if newColumn is "-".'
-                prompt[0]['content'] += '\n10. EditHavingCondition(oldCondition, newCondition): Replace oldCondition with newCondition in the HAVING clause. Add newCondition into the HAVING clause if oldCondition is "-". Delete oldCondition from the HAVING clause if newCondition is "-".'
-                prompt[0]['content'] += '\n11. EditHavingLogicalOperator(and/or): Edit the logical operator in the HAVING clause.'
-                prompt[0]['content'] += '\n12. EditOrderByItem(oldItem, newItem): Replace oldItem with newItem in the ORDER BY clause. Add newItem into the ORDER BY clause if oldItem is "-". Delete oldItem from the ORDER BY clause if newItem is "-".'
-                prompt[0]['content'] += '\n13. EditOrder(asc/desc): Edit the order in the ORDER BY clause.'
-                prompt[0]['content'] += '\n14. EditLimit(oldLimit, newLimit): Replace oldLimit with newLimit in the LIMIT clause. Add newLimit into the LIMIT clause if oldLimit is "-". Delete oldLimit from the LIMIT clause if newLimit is "-".'
-                prompt[0]['content'] += '\n15. TakeAsNestedFromClause: Take the previous SQL as the nested FROM clause for the current SQL.'
-                prompt[0]['content'] += '\n16. OnlyRetainNestedFromClause: Retain the nested FROM clause in the previous SQL as the current SQL.'
-                prompt[0]['content'] += '\n17. TakeAsNestedCondition: Take the previous SQL as the nested condition for the current SQL.'
-                prompt[0]['content'] += '\n18. OnlyRetainNestedCondition: Retain the nested condition in the previous SQL as the current SQL.'
             for i, shot in enumerate(shots):
                 for j, turn in enumerate(shot['interaction']):
                     prompt.append({'role': 'user', 'content': ''})
-                    if j == 0:
-                        prompt[-1]['content'] = 'Database schema:\n' + self.db_prompts[shot['database_id']] + '\n'
+                    if j == 0 and (i == 0 or shot['database_id'] != shots[i - 1]['database_id']):
+                        prompt[-1]['content'] = 'Database schema:\n' + self.get_db_prompt(args, shot['database_id']) + '\n'
                     if args.coe:
                         prompt[-1]['content'] += f"Question {i + 1}-{j + 1}: {turn['utterance']}"
-                        prompt.append({'role': 'assistant'})
+                        prompt.append({'role': 'assistant', 'content': "Let's think step by step.\n\n"})
                         if 'editions' in turn:
-                            prompt[-1]['content'] = f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}. Following operations are used:\n"
-                            prompt[-1]['content'] += '\n'.join(turn['editions']) + '\n'
+                            prompt[-1]['content'] += f"SQL {i + 1}-{j + 1} can be edited from SQL {i + 1}-{turn['prev_id'] + 1}.\n\n"
+                            if 'edit_reason' in turn:
+                                prompt[-1]['content'] += turn['edit_reason'] + '\n\n'
+                            prompt[-1]['content'] += 'Therefore, following edit operations are used:\n\n'
+                            prompt[-1]['content'] += convert_editions_to_prompt(turn['editions']) + '\n\n'
                         else:
-                            prompt[-1]['content'] = f"SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n"
-                        prompt[-1]['content'] += f"So SQL {i + 1}-{j + 1} is:\n{turn['query']}"
+                            prompt[-1]['content'] += f'SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n\n'
+                        prompt[-1]['content'] += f"So SQL {i + 1}-{j + 1} is:\n\n{turn['query']}"
                     else:
                         prompt[-1]['content'] += 'Question: ' + turn['utterance']
                         prompt.append({'role': 'assistant', 'content': turn['query']})
@@ -102,7 +238,7 @@ class PromptMaker:
                 for j, turn in enumerate(interaction):
                     prompt.append({'role': 'user', 'content': ''})
                     if j == 0:
-                        prompt[-1]['content'] = 'Database schema:\n' + self.db_prompts[db_id] + '\n'
+                        prompt[-1]['content'] = 'Database schema:\n' + self.get_db_prompt(args, db_id) + '\n'
                     prompt[-1]['content'] += f"Question{f' {len(shots) + 1}-{j + 1}' if args.coe else ''}: {turn['utterance']}"
                     if j < len(interaction) - 1:
                         prompt.append({'role': 'assistant', 'content': turn['query']})
@@ -113,51 +249,98 @@ class PromptMaker:
             raise ValueError(f'unknown GPT model {args.gpt}')
         return prompt
 
+    def get_prompt_edit_reason(self, args, bg_questions, prev_question, cur_question):
+        if args.gpt in GPT_CHAT_MODELS:
+            prompt = [
+                {'role': 'system', 'content': 'You need to state the difference between the previous question and the current question.'},
+                {'role': 'user', 'content': ''}
+            ]
+            for i, q in enumerate(bg_questions):
+                prompt[-1]['content'] += f'Background question {i + 1}: {q}\n'
+            prompt[-1]['content'] += f'Previous question: {prev_question}\nCurrent question: {cur_question}'
+        elif args.gpt in GPT_COMPLETION_MODELS:
+            prompt = ''
+            pass
+        else:
+            raise ValueError(f'unknown GPT model {args.gpt}')
+        return prompt
+
     def is_valid_shots(self, shots, args):
+        for shot in shots:
+            if len(shot['interaction']) == 0:
+                return False
+            for turn in shot['interaction']:
+                if 'editions' in turn and len(turn['editions']) == 0:
+                    return False
         prompt = self.get_prompt(args, shots=shots)
         prompt_len = len(prompt) if isinstance(prompt, str) else sum([len(message['content']) for message in prompt])
-        return prompt_len < MAX_LENS[args.gpt]
+        return prompt_len < MAX_LENS[args.gpt] * len(shots) / (args.static + args.dynamic)
 
-    def get_shots(self, dataset, args):
-        if args.shot_num == 0:
-            return []
-        while 1:
-            shots = set()
-            while len(shots) < args.shot_num:
-                shots.add(random.randint(0, len(dataset) - 1))
-            shots = [dataset[id] for id in shots]
-            if self.is_valid_shots(shots, args):
-                return shots
+    def get_edit_reasons_for_shots(self, shots, args):
+        if not args.coe:
+            return shots
+        for shot in shots:
+            interaction = shot['interaction']
+            for i in range(len(interaction)):
+                questions, cur_idx = [], i
+                while 1:
+                    questions.append(interaction[cur_idx]['utterance'])
+                    if 'prev_id' not in interaction[cur_idx]:
+                        break
+                    cur_idx = interaction[cur_idx]['prev_id']
+                if len(questions) > 1:
+                    prompt = self.get_prompt_edit_reason(args, list(reversed(questions[2:])), questions[1], questions[0])
+                    interaction[i]['edit_reason'] = get_response(prompt, args, 1000)
+        return shots
 
-    def get_coe_shots(self, dataset, args):
-        if args.shot_num == 0:
+    def get_static_shots(self, dataset, args):
+        if args.static == 0:
             return []
         filename = os.path.join(args.log_path, 'shot.bin')
         if os.path.exists(filename):
             with open(filename, 'rb') as file:
                 shots = pickle.load(file)
             return shots
+        all_dbs, valid_dbs = set([example['database_id'] for example in dataset]), []
+        for db in all_dbs:
+            if sum([int(example['database_id'] == db) for example in dataset]) >= args.shot_per_db:
+                valid_dbs.append(db)
         while 1:
-            shots = set()
-            while len(shots) < args.shot_num:
-                shots.add(random.randint(0, len(dataset) - 1))
-            shots = [dataset[id] for id in shots]
-            if not self.is_valid_shots(shots, args):
-                continue
-            edit_rules = set()
-            for shot in shots:
-                edit_rules |= shot['edit_rules']
-            if 'EditIUE' in edit_rules and 'TakeAsNestedCondition' in edit_rules:
+            dbs, shots = random.sample(valid_dbs, args.db), []
+            for db in dbs:
+                shots += random.sample([example for example in dataset if example['database_id'] == db], args.shot_per_db)
+            if self.is_valid_shots(shots, args) and sum([int(shot['interaction'][0]['query'].lower().startswith('select *')) for shot in shots]) / len(shots) >= 0.5:
                 break
+        shots = self.get_edit_reasons_for_shots(shots, args)
         with open(filename, 'wb') as file:
             pickle.dump(shots, file)
         return shots
+
+    def get_dynamic_shots(self, dataset, encoding, turn_num, args):
+        if args.dynamic == 0:
+            return []
+        all_encodings = []
+        for example in dataset:
+            if len(example['interaction']) > 0:
+                all_encodings.append(example['interaction'][min(turn_num, len(example['interaction']) - 1)]['encoding'])
+            else:
+                all_encodings.append([0.] * len(all_encodings[0]))
+        scores = util.cos_sim(encoding, all_encodings).squeeze(0).tolist()
+        scores = sorted(enumerate(scores), key=lambda x: -x[1])
+        shots = []
+        for item in scores:
+            shots.append(dataset[item[0]])
+            if not self.is_valid_shots(shots, args):
+                shots.pop()
+            elif len(shots) == args.dynamic:
+                break
+        return self.get_edit_reasons_for_shots(sorted(shots, key=lambda x: x['database_id']), args)
 
 
 def dict_factory(cursor, row):
     d = {}
     for idx, col in enumerate(cursor.description):
-        d[col[0]] = row[idx]
+        d[col[0]] = str(row[idx])
     return d
 
 
@@ -186,7 +369,8 @@ if __name__ == '__main__':
         {
             'utterance': 'Count all black items in Table.',
             'query': 'SELECT COUNT(*) FROM Table WHERE color = "black"',
-            'editions': ['EditSelectItem(*, COUNT(*))', 'EditWhereCondition(-, Table.color = "black")'],
+            'editions': [('EditSelectItem', '*', 'COUNT(*)'), ('EditWhereCondition', '-', 'Table.color = "black"')],
+            'edit_reason': 'The current question asks for the number of items with black color.',
             'prev_id': 0
         }
     ]

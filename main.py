@@ -3,6 +3,7 @@ import os
 import random
 import time
 from eval.evaluation import isValidSQL
+from sentence_transformers import SentenceTransformer
 from util.arg import main_args
 from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS
 from util.example import Example
@@ -27,14 +28,13 @@ def save_cached_json_file(filename, content):
 def postprocess(response, args, db_id):
     if args.gpt in GPT_CHAT_MODELS:
         if args.coe:
-            start_idx = response.find('So SQL ' + str(args.shot_num + 1) + '-')
-            assert start_idx >= 0
+            start_idx = response.find('So SQL ' + str(args.static + args.dynamic + 1) + '-')
+            if start_idx < 0:
+                return 'SELECT *'
             response = response[start_idx:]
         start_idx = response.find('SELECT')
         if start_idx < 0:
-            start_idx = response.find('select')
-            if start_idx < 0:
-                return response
+            start_idx = max(response.find('select'), 0)
         original_sql = response[start_idx:]
         end_idx = original_sql.find('```')
         if end_idx >= 0:
@@ -43,7 +43,7 @@ def postprocess(response, args, db_id):
         pass
     else:
         raise ValueError(f'unknown GPT model {args.gpt}')
-    original_sql = ' '.join(original_sql.replace('==', '=').replace('<>', '!=').split())
+    original_sql = ' '.join(original_sql.replace('==', '=').replace('<>', '!=').strip(';').split())
     original_sql = original_sql.replace('INNER JOIN', 'JOIN').replace('inner join', 'join')
     original_sql = original_sql.replace('LEFT JOIN', 'JOIN').replace('left join', 'join')
     sql = original_sql
@@ -54,8 +54,10 @@ def postprocess(response, args, db_id):
 
 def decode(train_dataset, dev_dataset, args, etype='all'):
     prompt_maker = PromptMaker(args=args)
+    sentence_encoder = SentenceTransformer(os.path.join('plm', args.plm))
     if not os.path.exists(args.log_path):
         os.makedirs(args.log_path)
+    static_shots = prompt_maker.get_static_shots(train_dataset, args)
     pred_filename = os.path.join(args.log_path, 'pred.sql')
     if os.path.exists(pred_filename):
         with open(pred_filename, 'r', encoding='utf-8') as pred_file:
@@ -66,11 +68,8 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
         cached = 0
         pred_file = open(pred_filename, 'w', encoding='utf-8')
     if args.coe:
-        shots = prompt_maker.get_coe_shots(train_dataset, args)
         coe_filename = os.path.join(args.log_path, 'coe.json')
         coes = load_cached_json_file(coe_filename)
-    else:
-        shots = prompt_maker.get_shots(train_dataset, args)
     for i, example in enumerate(dev_dataset):
         if i < cached:
             continue
@@ -83,9 +82,19 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
         for j, turn in enumerate(example['interaction']):
             print(f'Decoding example {i}-{j} ...')
             interaction.append({'utterance': turn['utterance']})
+            if args.dca:
+                prompt_maker.update_db_content_scores(db_id, turn['utterance'], j)
+            encoding = sentence_encoder.encode(
+                '\n'.join([item['utterance'] for item in interaction]),
+                batch_size=1,
+                normalize_embeddings=True,
+                convert_to_tensor=True,
+                device=args.device
+            ).cpu().tolist()
+            dynamic_shots = prompt_maker.get_dynamic_shots(train_dataset, encoding, j, args)
             max_tokens, response = 500, None
             while response is None:
-                response = get_response(prompt_maker.get_prompt(args, db_id, interaction, shots), args, max_tokens)
+                response = get_response(prompt_maker.get_prompt(args, db_id, interaction, static_shots + dynamic_shots), args, max_tokens)
                 max_tokens -= 50
             sql = postprocess(response, args, db_id)
             if args.coe:
