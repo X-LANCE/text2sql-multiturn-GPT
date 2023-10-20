@@ -51,7 +51,7 @@ class AbstractSyntaxTree:
                 return set()
             if isinstance(t_new, AbstractSyntaxTree) and t_old is None:
                 if cur_field in SET_OPS:
-                    return {('EditIUE', cur_field, 'right', t_new.unparse())}
+                    return {('EditIUE', cur_field, t_new.unparse())}
                 if cur_field == 'select*':
                     return {('EditSelectItem', '-', t_new.unparse())}
                 if cur_field == 'join':
@@ -94,7 +94,7 @@ class AbstractSyntaxTree:
                 raise ValueError('ADD')
             if t_new is None and isinstance(t_old, AbstractSyntaxTree):
                 if cur_field in SET_OPS:
-                    return {('EditIUE', cur_field, 'right', '-')}
+                    return {('EditIUE', cur_field, '-')}
                 if t_old.constructor.name == 'ValUnit' and cur_field == 'select*':
                     return {('EditSelectItem', t_old.unparse(), '-')}
                 if cur_field == 'join':
@@ -185,11 +185,11 @@ class AbstractSyntaxTree:
         editions = set()
         try:
             if self.constructor.name == 'Complete':
-                for set_op in SET_OPS:
+                for set_op in ['intersect', 'union']:
                     if self.constructor.sons[set_op] and len(self.constructor.sons[set_op].compare(ast)) == 0:
-                        return {('EditIUE', set_op, 'left', self.constructor.sons['sqlUnit'].unparse())}
+                        return {('EditIUE', set_op, self.constructor.sons['sqlUnit'].unparse())}
                     if ast.constructor.sons[set_op] and len(ast.constructor.sons[set_op].compare(self)) == 0:
-                        return {('EditIUE', set_op, 'left', '-')}
+                        return {('EditIUE', set_op, '-')}
             for field in self.constructor.fields:
                 self_son, ast_son = self.constructor.sons[field], ast.constructor.sons[field]
                 if isinstance(self_son, list):

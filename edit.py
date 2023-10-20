@@ -1,7 +1,7 @@
 import json
 import os
 import pickle
-from asdl.asdl import AbstractSyntaxTree
+from asdl.asdl_ast import AbstractSyntaxTree
 from sentence_transformers import SentenceTransformer
 from util.arg import edit_args
 from util.constant import EDIT_RULES

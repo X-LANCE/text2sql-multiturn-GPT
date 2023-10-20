@@ -6,6 +6,7 @@ import json
 import pickle
 import random
 import sqlite3
+from asdl.llm_sql_dict import LLMSQLDictMaker
 from nltk import word_tokenize
 from sentence_transformers import util
 from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS
@@ -17,6 +18,7 @@ class PromptMaker:
         with open(os.path.join('data', args.dataset, 'tables.json'), 'r', encoding='utf-8') as file:
             dbs = json.load(file)
         self.db_prompts = {}
+        self.llm_sql_dict_maker = LLMSQLDictMaker(args)
         for db in dbs:
             db_id = db['db_id']
             tabs = db['table_names_original']
@@ -99,118 +101,82 @@ class PromptMaker:
 
     def get_prompt(self, args, db_id=None, interaction=[], shots=[]):
         def convert_editions_to_prompt(editions):
-            def linearize(clause):
-                if len(clause) == 1:
-                    clause.append('no change is needed')
-                return '\n- '.join(clause)
-
-            from_clause = ['FROM clause:']
-            select_clause = ['SELECT clause:']
-            where_clause = ['WHERE clause:']
-            group_by_clause = ['GROUP BY clause:']
-            order_by_clause = ['ORDER BY clause:']
-            limit_clause = ['LIMIT clause:']
-            iue_clause = ['INTERSECT/UNION/EXCEPT:']
+            results = []
             for edition in editions:
                 if edition[0] == 'EditFromTable':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        from_clause.append('add table ' + edition[2])
-                    elif edition[2] == '-':
-                        from_clause.append('remove table ' + edition[1])
-                    else:
-                        from_clause.append(f'change table {edition[1]} to {edition[2]}')
+                    if edition[1] != '-':
+                        results.append("sql['from']['tables'].remove('" + edition[1] + "')")
+                    if edition[2] != '-':
+                        results.append("sql['from']['tables'].append('" + edition[2] + "')")
                 elif edition[0] == 'EditJoinCondition':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        from_clause.append('add JOIN condition ' + edition[2])
-                    elif edition[2] == '-':
-                        from_clause.append('remove JOIN condition ' + edition[1])
-                    else:
-                        from_clause.append(f'change JOIN condition {edition[1]} to {edition[2]}')
+                    if edition[1] != '-':
+                        results.append("sql['from']['join']['conditions'].remove('" + edition[1] + "')")
+                    if edition[2] != '-':
+                        results.append("sql['from']['join']['conditions'].append('" + edition[2] + "')")
                 elif edition[0] == 'EditJoinLogicalOperator':
                     assert len(edition) == 2 and edition[1] in ['AND', 'OR']
-                    from_clause.append('change JOIN logical operator to ' + edition[1])
+                    results.append("sql['from']['join']['logical_operator'] = '" + edition[1] + "'")
                 elif edition[0] == 'EditNestedFromClause':
                     assert len(edition) == 2
                     if edition[1] == '-':
-                        from_clause.append('remove the nested FROM clause')
+                        results.append("sql['from']['tables'].clear()")
                     else:
-                        from_clause.append(f'add the SQL ({edition[1]}) as the nested FROM clause')
+                        results.append("sql['from']['tables'] = ['" + edition[1] + "']")
                 elif edition[0] == 'EditSelectItem':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        select_clause.append('add ' + edition[2])
-                    elif edition[2] == '-':
-                        select_clause.append('remove ' + edition[1])
-                    else:
-                        select_clause.append(f'change {edition[1]} to {edition[2]}')
+                    if edition[1] != '-':
+                        results.append("sql['select'].remove('" + edition[1] + "')")
+                    if edition[2] != '-':
+                        results.append("sql['select'].append('" + edition[2] + "')")
                 elif edition[0] == 'EditWhereCondition':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        where_clause.append('add WHERE condition ' + edition[2])
-                    elif edition[2] == '-':
-                        where_clause.append('remove WHERE condition ' + edition[1])
-                    else:
-                        where_clause.append(f'change WHERE condition {edition[1]} to {edition[2]}')
+                    if edition[1] != '-':
+                        results.append("sql['where']['conditions'].remove('" + edition[1] + "')")
+                    if edition[2] != '-':
+                        results.append("sql['where']['conditions'].append('" + edition[2] + "')")
                 elif edition[0] == 'EditWhereLogicalOperator':
                     assert len(edition) == 2 and edition[1] in ['AND', 'OR']
-                    where_clause.append('change WHERE logical operator to ' + edition[1])
+                    results.append("sql['where']['logical_operator'] = '" + edition[1] + "'")
                 elif edition[0] == 'EditGroupByColumn':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        group_by_clause.append('add column ' + edition[2])
-                    elif edition[2] == '-':
-                        group_by_clause.append('remove column ' + edition[1])
-                    else:
-                        group_by_clause.append(f'change column {edition[1]} to {edition[2]}')
+                    if edition[1] != '-':
+                        results.append("sql['group_by']['columns'].remove('" + edition[1] + "')")
+                    if edition[2] != '-':
+                        results.append("sql['group_by']['columns'].append('" + edition[2] + "')")
                 elif edition[0] == 'EditHavingCondition':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        group_by_clause.append('add HAVING condition ' + edition[2])
-                    elif edition[2] == '-':
-                        group_by_clause.append('remove HAVING condition ' + edition[1])
-                    else:
-                        group_by_clause.append(f'change HAVING condition {edition[1]} to {edition[2]}')
+                    if edition[1] != '-':
+                        results.append("sql['group_by']['having']['conditions'].remove('" + edition[1] + "')")
+                    if edition[2] != '-':
+                        results.append("sql['group_by']['having']['conditions'].append('" + edition[2] + "')")
                 elif edition[0] == 'EditHavingLogicalOperator':
                     assert len(edition) == 2 and edition[1] in ['AND', 'OR']
-                    group_by_clause.append('change HAVING logical operator to ' + edition[1])
+                    results.append("sql['group_by']['having']['logical_operator'] = '" + edition[1] + "'")
                 elif edition[0] == 'EditOrderByItem':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        order_by_clause.append('add ' + edition[2])
-                    elif edition[2] == '-':
-                        order_by_clause.append('remove ' + edition[1])
-                    else:
-                        order_by_clause.append(f'change {edition[1]} to {edition[2]}')
+                    if edition[1] != '-':
+                        results.append("sql['order_by']['columns'].remove('" + edition[1] + "')")
+                    if edition[2] != '-':
+                        results.append("sql['order_by']['columns'].append('" + edition[2] + "')")
                 elif edition[0] == 'EditOrder':
                     assert len(edition) == 2 and edition[1] in ['ASC', 'DESC']
-                    order_by_clause.append('change order to ' + edition[1])
+                    results.append("sql['order_by']['order'] = '" + edition[1] + "'")
                 elif edition[0] == 'EditLimit':
                     assert len(edition) == 3
-                    if edition[1] == '-':
-                        limit_clause.append('add LIMIT ' + edition[2])
-                    elif edition[2] == '-':
-                        limit_clause.append('remove LIMIT ' + edition[1])
-                    else:
-                        limit_clause.append(f'change LIMIT {edition[1]} to {edition[2]}')
+                    results.append("sql['limit'] = " + ('None' if edition[2] == '-' else edition[2]))
                 elif edition[0] == 'EditIUE':
-                    assert len(edition) == 4 and edition[1] in SET_OPS and edition[2] in ['left', 'right']
-                    if edition[3] == '-':
-                        iue_clause.append(f'remove the SQL on the {edition[2]} side of the keyword {edition[1].upper()}')
+                    assert len(edition) == 3 and edition[1] in SET_OPS
+                    cur_result = "sql['" + edition[1] + "'] = "
+                    if edition[2] == '-':
+                        cur_result += 'None'
                     else:
-                        iue_clause.append(f'{edition[1].upper()}: add the SQL ({edition[3]}) on the {edition[2]} side')
+                        cur_result += "'" + edition[2] + "'"
+                    results.append(cur_result)
                 else:
                     raise ValueError(f'unknown edit rule {edition[0]}')
-            return '\n'.join([
-                linearize(from_clause),
-                linearize(select_clause),
-                linearize(where_clause),
-                linearize(group_by_clause),
-                linearize(order_by_clause),
-                linearize(limit_clause),
-                linearize(iue_clause)
-            ])
+            return '\n'.join(results)
 
         if args.gpt in GPT_CHAT_MODELS:
             prompt = [{'role': 'system', 'content': 'Given the database schema, you need to translate the question into the SQL query.'}]
@@ -309,8 +275,9 @@ class PromptMaker:
             dbs, shots = random.sample(valid_dbs, args.db), []
             for db in dbs:
                 shots += random.sample([example for example in dataset if example['database_id'] == db], args.shot_per_db)
-            if self.is_valid_shots(shots, args) and sum([int(shot['interaction'][0]['query'].lower().startswith('select *')) for shot in shots]) / len(shots) >= 0.5:
+            if self.is_valid_shots(shots, args):
                 break
+        print('Generating edit reasons ...')
         shots = self.get_edit_reasons_for_shots(shots, args)
         with open(filename, 'wb') as file:
             pickle.dump(shots, file)
@@ -360,19 +327,21 @@ if __name__ == '__main__':
     args = main_args()
     print('log path:', args.log_path)
     prompt_maker = PromptMaker(args)
-    db_id = input('db: ')
+    db_id = 'world_1'
     interaction = [
         {
-            'utterance': 'List all items in Table.',
-            'query': 'SELECT * FROM Table'
+            'utterance': 'List all country languages.',
+            'query': 'SELECT * FROM countrylanguage'
         },
         {
-            'utterance': 'Count all black items in Table.',
-            'query': 'SELECT COUNT(*) FROM Table WHERE color = "black"',
-            'editions': [('EditSelectItem', '*', 'COUNT(*)'), ('EditWhereCondition', '-', 'Table.color = "black"')],
-            'edit_reason': 'The current question asks for the number of items with black color.',
+            'utterance': 'How many langauges in country code 001.',
+            'query': 'SELECT COUNT(*) FROM countrylanguage WHERE countrycode = "001"',
+            'editions': [('EditSelectItem', '*', 'COUNT(*)'), ('EditWhereCondition', '-', 'countrylanguage.countrycode = "001"')],
+            'edit_reason': 'The current question asks for the number of langauges in country code 001.',
             'prev_id': 0
         }
     ]
+    for turn in interaction:
+        turn['sql'] = prompt_maker.llm_sql_dict_maker.parse(db_id, turn['query'])
     shots = [{'database_id': db_id, 'interaction': interaction} for _ in range(2)]
     print_prompt(prompt_maker.get_prompt(args, db_id, interaction, shots))
