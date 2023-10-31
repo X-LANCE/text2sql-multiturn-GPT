@@ -9,7 +9,7 @@ import sqlite3
 from asdl.llm_sql_dict import LLMSQLDictMaker
 from nltk import word_tokenize
 from sentence_transformers import util
-from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS
+from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS, SQL_DICT_INSTRUCTION
 from util.gpt import get_response
 
 
@@ -180,6 +180,8 @@ class PromptMaker:
 
         if args.gpt in GPT_CHAT_MODELS:
             prompt = [{'role': 'system', 'content': 'Given the database schema, you need to translate the question into the SQL query.'}]
+            if args.coe:
+                prompt[0]['content'] += ' ' + SQL_DICT_INSTRUCTION
             for i, shot in enumerate(shots):
                 for j, turn in enumerate(shot['interaction']):
                     prompt.append({'role': 'user', 'content': ''})
@@ -342,6 +344,6 @@ if __name__ == '__main__':
         }
     ]
     for turn in interaction:
-        turn['sql'] = prompt_maker.llm_sql_dict_maker.parse(db_id, turn['query'])
+        turn['sql'] = prompt_maker.llm_sql_dict_maker.get_sql_from_query(db_id, turn['query'])
     shots = [{'database_id': db_id, 'interaction': interaction} for _ in range(2)]
     print_prompt(prompt_maker.get_prompt(args, db_id, interaction, shots))

@@ -13,7 +13,7 @@ class LLMSQLDictMaker:
         with open(os.path.join('data', args.dataset, 'tables.json'), 'r', encoding='utf-8') as file:
             self.dbs = {db['db_id']: db for db in json.load(file)}
 
-    def get_llm_sql_dict(self, db_id, sql):
+    def get_llm_sql_dict_from_sql(self, db_id, sql):
         llm_sql_dict = {
             'from': {
                 'tables': [],
@@ -71,9 +71,32 @@ class LLMSQLDictMaker:
         for set_op in SET_OPS:
             if sql[set_op]:
                 llm_sql_dict[set_op] = AbstractSyntaxTree.build_sql(sql[set_op], db).unparse()
-        return json.dumps(llm_sql_dict, ensure_ascii=False, indent=4)
+        return llm_sql_dict
 
-    def parse(self, db_id, query):
+    def get_query_from_llm_sql_dict(self, llm_sql_dict):
+        query = 'SELECT ' + ', '.join(llm_sql_dict['select']) + ' FROM '
+        if len(llm_sql_dict['from']['tables']) == 1 and llm_sql_dict['from']['tables'][0].lower().startswith('select '):
+            query += '(' + llm_sql_dict['from']['tables'][0] + ')'
+        else:
+            query += ' JOIN '.join(llm_sql_dict['from']['tables'])
+            if llm_sql_dict['from']['join']['conditions']:
+                query += ' ON ' + (' ' + (llm_sql_dict['from']['join']['logical_operator'] or 'AND') + ' ').join(llm_sql_dict['from']['join']['conditions'])
+        if llm_sql_dict['where']['conditions']:
+            query += ' WHERE ' + (' ' + (llm_sql_dict['where']['logical_operator'] or 'AND') + ' ').join(llm_sql_dict['where']['conditions'])
+        if llm_sql_dict['group_by']['columns']:
+            query += ' GROUP BY ' + ', '.join(llm_sql_dict['group_by']['columns'])
+            if llm_sql_dict['group_by']['having']['conditions']:
+                query += ' HAVING ' + (' ' + (llm_sql_dict['group_by']['having']['logical_operator'] or 'AND') + ' ').join(llm_sql_dict['group_by']['having']['conditions'])
+        if llm_sql_dict['order_by']['columns']:
+            query += ' ORDER BY ' + ', '.join(llm_sql_dict['order_by']['columns']) + ' ' + (llm_sql_dict['order_by']['order'] or 'ASC')
+        if llm_sql_dict['limit'] is not None:
+            query += ' LIMIT ' + str(llm_sql_dict['limit'])
+        for set_op in SET_OPS:
+            if llm_sql_dict[set_op]:
+                query += ' ' + set_op.upper() + ' ' + llm_sql_dict[set_op]
+        return query
+
+    def get_sql_from_query(self, db_id, query):
         def convert_name_to_id(name: str):
             name = name.lower().strip('_')
             if name == 'all':
@@ -149,4 +172,7 @@ if __name__ == '__main__':
     llm_sql_dict_maker = LLMSQLDictMaker(args)
     db_id = input('db: ')
     query = input('sql: ')
-    print(llm_sql_dict_maker.get_llm_sql_dict(db_id, llm_sql_dict_maker.parse(db_id, query)))
+    sql = llm_sql_dict_maker.get_sql_from_query(db_id, query)
+    llm_sql_dict = llm_sql_dict_maker.get_llm_sql_dict_from_sql(db_id, sql)
+    print(json.dumps(llm_sql_dict, ensure_ascii=False, indent=4))
+    print(llm_sql_dict_maker.get_query_from_llm_sql_dict(llm_sql_dict))
