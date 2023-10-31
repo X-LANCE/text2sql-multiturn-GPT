@@ -129,6 +129,21 @@ def tokenize(string):
         string = string[:qidx1] + key + string[qidx2+1:]
         vals[key] = val
 
+    toks = string.lower().split()
+    while 1:
+        for i in range(len(toks)):
+            if toks[i] == 'as' and len(toks[i + 1]) > 2:
+                break
+        else:
+            break
+        original_col, alias_col = toks[i - 1], toks[i + 1]
+        for _ in range(2):
+            toks.pop(i)
+        for i in range(len(toks)):
+            if toks[i] == alias_col:
+                toks[i] = original_col
+    string = ' '.join(toks)
+
     toks = [word.lower() for word in word_tokenize(string)]
     # replace with string value token
     for i in range(len(toks)):
@@ -175,7 +190,9 @@ def parse_col(toks, start_idx, tables_with_alias, schema, default_tables=None):
     if '.' in tok:  # if token is a composite
         alias, col = tok.split('.')
         key = tables_with_alias[alias] + "." + col
-        return start_idx+1, schema.idMap[key]
+        if key in schema.idMap:
+            return start_idx+1, schema.idMap[key]
+        tok = col
 
     assert default_tables is not None and len(default_tables) > 0, "Default tables should not be None or empty"
 
@@ -385,7 +402,7 @@ def parse_from(toks, start_idx, tables_with_alias, schema):
             idx, sql = parse_sql(toks, idx, tables_with_alias, schema)
             table_units.append((TABLE_TYPE['sql'], sql))
         else:
-            if idx < len_ and toks[idx] == 'join':
+            if idx < len_ and toks[idx] in [',', 'join']:
                 idx += 1  # skip join
             idx, table_unit, table_name = parse_table_unit(toks, idx, tables_with_alias, schema)
             table_units.append((TABLE_TYPE['table_unit'],table_unit))

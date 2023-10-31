@@ -103,18 +103,41 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
             while response is None:
                 response = get_response(prompt_maker.get_prompt(args, db_id, interaction, static_shots + dynamic_shots), args, max_tokens)
                 max_tokens -= 50
-            sql = postprocess(response, args, db_id)
             if args.coe:
-                interaction[-1]['query'] = response
                 coes[str(i)].append({
                     'question': turn['utterance'],
                     'gold': turn['query'],
                     'coe': response
                 })
                 save_cached_json_file(coe_filename, coes)
+                output_text = f'SQL {args.static + args.dynamic + 1}-{j + 1} can be edited from SQL {args.static + args.dynamic + 1}-'
+                start_idx = response.find(output_text)
+                if start_idx < 0:
+                    query = postprocess(response, args, db_id)
+                    sql = prompt_maker.llm_sql_dict_maker.get_sql_from_query(db_id, query)
+                    interaction[-1]['llm_sql_dict'] = prompt_maker.llm_sql_dict_maker.get_llm_sql_dict_from_sql(db_id, sql)
+                else:
+                    sql = interaction[int(response[start_idx + len(output_text):].split()[0].strip('.')) - 1]['llm_sql_dict']
+                    output_text = 'Therefore, following edit operations are used:\n\n'
+                    start_idx, end_idx = response.find(output_text), response.find('\n\nSo SQL dict ')
+                    assert 0 <= start_idx < end_idx
+                    try:
+                        exec(response[start_idx + len(output_text):end_idx])
+                        interaction[-1]['llm_sql_dict'] = sql
+                    except Exception as e:
+                        print(e)
+                        query = postprocess(response, args, db_id)
+                        sql = prompt_maker.llm_sql_dict_maker.get_sql_from_query(db_id, query)
+                        interaction[-1]['llm_sql_dict'] = prompt_maker.llm_sql_dict_maker.get_llm_sql_dict_from_sql(db_id, sql)
+                query = prompt_maker.llm_sql_dict_maker.get_query_from_llm_sql_dict(interaction[-1]['llm_sql_dict'])
+                output_text = f'So SQL dict {args.static + args.dynamic + 1}-{j + 1} is:\n\n'
+                start_idx = response.find(output_text)
+                assert start_idx >= 0
+                interaction[-1]['query'] = response[:start_idx + len(output_text)] + json.dumps(interaction[-1]['llm_sql_dict'], ensure_ascii=False, indent=4) + f'\n\nSo SQL {args.static + args.dynamic + 1}-{j + 1} is:\n\n' + query
             else:
-                interaction[-1]['query'] = sql
-            pred_file.write(sql + '\n')
+                query = postprocess(response, args, db_id)
+                interaction[-1]['query'] = query
+            pred_file.write(query + '\n')
             pred_file.flush()
     pred_file.close()
     return Example.evaluator.accuracy(pred_filename, dev_dataset, os.path.join(args.log_path, 'dev.txt'), etype=etype)

@@ -198,6 +198,7 @@ class PromptMaker:
                             prompt[-1]['content'] += convert_editions_to_prompt(turn['editions']) + '\n\n'
                         else:
                             prompt[-1]['content'] += f'SQL {i + 1}-{j + 1} can be written directly instead of being edited from previous SQL.\n\n'
+                        prompt[-1]['content'] += f"So SQL dict {i + 1}-{j + 1} is:\n\n{json.dumps(self.llm_sql_dict_maker.get_llm_sql_dict_from_sql(shot['database_id'], turn['sql']), ensure_ascii=False, indent=4)}\n\n"
                         prompt[-1]['content'] += f"So SQL {i + 1}-{j + 1} is:\n\n{turn['query']}"
                     else:
                         prompt[-1]['content'] += 'Question: ' + turn['utterance']
