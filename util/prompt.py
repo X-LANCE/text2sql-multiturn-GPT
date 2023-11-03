@@ -311,6 +311,7 @@ class PromptMaker:
                 shots += random.sample([example for example in dataset if example['database_id'] == db], args.shot_per_db)
             if self.is_valid_shots(shots, args) and sum([int(shot['interaction'][0]['query'].lower().startswith('select *')) for shot in shots]) / len(shots) >= 0.5:
                 break
+        print('Generating edit reasons ...')
         shots = self.get_edit_reasons_for_shots(shots, args)
         with open(filename, 'wb') as file:
             pickle.dump(shots, file)

@@ -46,6 +46,13 @@ def postprocess(response, args, db_id):
     original_sql = ' '.join(original_sql.replace('==', '=').replace('<>', '!=').strip(';').split())
     original_sql = original_sql.replace('INNER JOIN', 'JOIN').replace('inner join', 'join')
     original_sql = original_sql.replace('LEFT JOIN', 'JOIN').replace('left join', 'join')
+    while 1:
+        start_idx = original_sql.find('.*')
+        if start_idx < 0:
+            break
+        while start_idx >= 0 and original_sql[start_idx] not in [' ', '(']:
+            original_sql = original_sql[:start_idx] + original_sql[start_idx + 1:]
+            start_idx -= 1
     sql = original_sql
     while len(sql) > 0 and not isValidSQL(sql, os.path.join(Example.evaluator.db_dir, db_id, db_id + '.sqlite')):
         sql = ' '.join(sql.split()[:-1])

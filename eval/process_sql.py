@@ -487,8 +487,8 @@ def parse_limit(toks, start_idx):
     if idx < len_ and toks[idx] == 'limit':
         idx += 2
         # make limit value can work, cannot assume put 1 as a fake limit number
-        if type(toks[idx-1]) != int:
-            return idx, 1
+        # if type(toks[idx-1]) != int:
+        #     return idx, 1
 
         return idx, int(toks[idx-1])
 

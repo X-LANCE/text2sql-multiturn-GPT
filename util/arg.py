@@ -5,7 +5,7 @@ import os
 def main_args():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('--dataset', default='sparc', type=str, help='dataset name')
-    arg_parser.add_argument('--gpt', default='gpt-3.5-turbo', type=str, help='GPT model')
+    arg_parser.add_argument('--gpt', default='gpt-3.5-turbo-16k', type=str, help='GPT model')
     arg_parser.add_argument('--seed', default=42, type=int, help='random seed')
     arg_parser.add_argument('--plm', default='text2vec-base-chinese', type=str, help='plm for preprocessing')
     arg_parser.add_argument('--device', default=0, type=int, help='gpu id (-1 represents cpu)')
