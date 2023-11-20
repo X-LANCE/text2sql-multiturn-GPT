@@ -7,7 +7,6 @@ import pickle
 import random
 import sqlite3
 from nltk import word_tokenize
-from sentence_transformers import util
 from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS, MAX_LENS, SET_OPS
 from util.gpt import get_response
 
@@ -274,7 +273,7 @@ class PromptMaker:
                     return False
         prompt = self.get_prompt(args, shots=shots)
         prompt_len = len(prompt) if isinstance(prompt, str) else sum([len(message['content']) for message in prompt])
-        return prompt_len < MAX_LENS[args.gpt] * len(shots) / (args.static + args.dynamic)
+        return prompt_len < MAX_LENS[args.gpt]
 
     def get_edit_reasons_for_shots(self, shots, args):
         if not args.coe:
@@ -316,26 +315,6 @@ class PromptMaker:
         with open(filename, 'wb') as file:
             pickle.dump(shots, file)
         return shots
-
-    def get_dynamic_shots(self, dataset, encoding, turn_num, args):
-        if args.dynamic == 0:
-            return []
-        all_encodings = []
-        for example in dataset:
-            if len(example['interaction']) > 0:
-                all_encodings.append(example['interaction'][min(turn_num, len(example['interaction']) - 1)]['encoding'])
-            else:
-                all_encodings.append([0.] * len(all_encodings[0]))
-        scores = util.cos_sim(encoding, all_encodings).squeeze(0).tolist()
-        scores = sorted(enumerate(scores), key=lambda x: -x[1])
-        shots = []
-        for item in scores:
-            shots.append(dataset[item[0]])
-            if not self.is_valid_shots(shots, args):
-                shots.pop()
-            elif len(shots) == args.dynamic:
-                break
-        return self.get_edit_reasons_for_shots(sorted(shots, key=lambda x: x['database_id']), args)
 
 
 def dict_factory(cursor, row):

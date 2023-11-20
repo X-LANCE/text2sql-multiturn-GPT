@@ -3,7 +3,6 @@ import os
 import random
 import time
 from eval.evaluation import isValidSQL
-from sentence_transformers import SentenceTransformer
 from util.arg import main_args
 from util.constant import GPT_CHAT_MODELS, GPT_COMPLETION_MODELS
 from util.example import Example
@@ -28,7 +27,7 @@ def save_cached_json_file(filename, content):
 def postprocess(response, args, db_id):
     if args.gpt in GPT_CHAT_MODELS:
         if args.coe:
-            start_idx = response.find('So SQL ' + str(args.static + args.dynamic + 1) + '-')
+            start_idx = response.find('So SQL ' + str(args.static + 1) + '-')
             if start_idx < 0:
                 return 'SELECT *'
             response = response[start_idx:]
@@ -61,7 +60,6 @@ def postprocess(response, args, db_id):
 
 def decode(train_dataset, dev_dataset, args, etype='all'):
     prompt_maker = PromptMaker(args=args)
-    sentence_encoder = SentenceTransformer(os.path.join('plm', args.plm))
     if not os.path.exists(args.log_path):
         os.makedirs(args.log_path)
     static_shots = prompt_maker.get_static_shots(train_dataset, args)
@@ -91,17 +89,9 @@ def decode(train_dataset, dev_dataset, args, etype='all'):
             interaction.append({'utterance': turn['utterance']})
             if args.dca:
                 prompt_maker.update_db_content_scores(db_id, turn['utterance'], j)
-            encoding = sentence_encoder.encode(
-                '\n'.join([item['utterance'] for item in interaction]),
-                batch_size=1,
-                normalize_embeddings=True,
-                convert_to_tensor=True,
-                device=args.device
-            ).cpu().tolist()
-            dynamic_shots = prompt_maker.get_dynamic_shots(train_dataset, encoding, j, args)
             max_tokens, response = 500, None
             while response is None:
-                response = get_response(prompt_maker.get_prompt(args, db_id, interaction, static_shots + dynamic_shots), args, max_tokens)
+                response = get_response(prompt_maker.get_prompt(args, db_id, interaction, static_shots), args, max_tokens)
                 max_tokens -= 50
             sql = postprocess(response, args, db_id)
             if args.coe:
