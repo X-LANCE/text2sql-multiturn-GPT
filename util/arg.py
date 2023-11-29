@@ -14,7 +14,6 @@ def main_args():
     arg_parser.add_argument('--shot_per_db', default=4, type=int, help='number of shots per database')
     arg_parser.add_argument('--coe', action='store_true', help='chain of editions')
     arg_parser.add_argument('--dca', action='store_true', help='database contents alignment')
-    arg_parser.add_argument('--speech_api', action='store_true', help='use speech api')
     args = arg_parser.parse_args()
     args.static = args.db * args.shot_per_db
     args.log_path = args.gpt

@@ -22,7 +22,7 @@ for example in dataset:
         ast = AbstractSyntaxTree.build_sql(interaction[i]['sql'], db)
         for j in range(i):
             editions = ast.compare(AbstractSyntaxTree.build_sql(interaction[j]['sql'], db))
-            if len(editions) <= 3 and ('editions' not in interaction[i] or get_editions_weight(editions) <= get_editions_weight(interaction[i]['editions'])):
+            if len(editions) <= 4 and ('editions' not in interaction[i] or get_editions_weight(editions) <= get_editions_weight(interaction[i]['editions'])):
                 interaction[i]['editions'], interaction[i]['prev_id'] = editions, j
         if 'editions' in interaction[i]:
             interaction[i]['editions'] = sorted(list(interaction[i]['editions']), key=lambda x: EDIT_RULES.index(x[0]))
