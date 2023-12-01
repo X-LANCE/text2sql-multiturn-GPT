@@ -2,7 +2,6 @@ import json
 import os
 import pickle
 from asdl.asdl_ast import AbstractSyntaxTree
-from sentence_transformers import SentenceTransformer
 from util.arg import edit_args
 from util.constant import EDIT_RULES
 
@@ -16,7 +15,6 @@ with open(os.path.join('data', args.dataset, 'train.json'), 'r', encoding='utf-8
     dataset = json.load(file)
 with open(os.path.join('data', args.dataset, 'tables.json'), 'r', encoding='utf-8') as file:
     dbs = {db['db_id']: db for db in json.load(file)}
-sentence_encoder = SentenceTransformer(os.path.join('plm', args.plm))
 for example in dataset:
     db, interaction = dbs[example['database_id']], example['interaction']
     example['edit_rules'] = set()
@@ -24,17 +22,10 @@ for example in dataset:
         ast = AbstractSyntaxTree.build_sql(interaction[i]['sql'], db)
         for j in range(i):
             editions = ast.compare(AbstractSyntaxTree.build_sql(interaction[j]['sql'], db))
-            if len(editions) <= 3 and ('editions' not in interaction[i] or get_editions_weight(editions) <= get_editions_weight(interaction[i]['editions'])):
+            if len(editions) <= 4 and ('editions' not in interaction[i] or get_editions_weight(editions) <= get_editions_weight(interaction[i]['editions'])):
                 interaction[i]['editions'], interaction[i]['prev_id'] = editions, j
         if 'editions' in interaction[i]:
             interaction[i]['editions'] = sorted(list(interaction[i]['editions']), key=lambda x: EDIT_RULES.index(x[0]))
             example['edit_rules'].update([edition[0] for edition in interaction[i]['editions']])
-        interaction[i]['encoding'] = sentence_encoder.encode(
-            '\n'.join([interaction[j]['utterance'] for j in range(i + 1)]),
-            batch_size=1,
-            normalize_embeddings=True,
-            convert_to_tensor=True,
-            device=args.device
-        ).cpu().tolist()
 with open(os.path.join('data', args.dataset, 'train.bin'), 'wb') as file:
     pickle.dump(dataset, file)

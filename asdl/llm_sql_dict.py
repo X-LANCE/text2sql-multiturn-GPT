@@ -47,6 +47,14 @@ class LLMSQLDictMaker:
                 llm_conds_dict['logical_operator'] = conds[1].upper()
             return llm_conds_dict
 
+        def get_simple_dict(complex_dict: dict):
+            for key in list(complex_dict.keys()):
+                if isinstance(complex_dict[key], dict):
+                    complex_dict[key] = get_simple_dict(complex_dict[key])
+                if not complex_dict[key]:
+                    complex_dict.pop(key)
+            return complex_dict
+
         for tab_unit in sql['from']['table_units']:
             if tab_unit[0] == 'sql':
                 llm_sql_dict['from']['tables'].append(AbstractSyntaxTree.build_sql(tab_unit[1], db).unparse())
@@ -71,7 +79,7 @@ class LLMSQLDictMaker:
         for set_op in SET_OPS:
             if sql[set_op]:
                 llm_sql_dict[set_op] = AbstractSyntaxTree.build_sql(sql[set_op], db).unparse()
-        return llm_sql_dict
+        return get_simple_dict(llm_sql_dict)
 
     def get_query_from_llm_sql_dict(self, llm_sql_dict):
         query = 'SELECT ' + ', '.join(llm_sql_dict['select']) + ' FROM '
@@ -79,20 +87,20 @@ class LLMSQLDictMaker:
             query += '(' + llm_sql_dict['from']['tables'][0] + ')'
         else:
             query += ' JOIN '.join(llm_sql_dict['from']['tables'])
-            if llm_sql_dict['from']['join']['conditions']:
-                query += ' ON ' + (' ' + (llm_sql_dict['from']['join']['logical_operator'] or 'AND') + ' ').join(llm_sql_dict['from']['join']['conditions'])
-        if llm_sql_dict['where']['conditions']:
-            query += ' WHERE ' + (' ' + (llm_sql_dict['where']['logical_operator'] or 'AND') + ' ').join(llm_sql_dict['where']['conditions'])
-        if llm_sql_dict['group_by']['columns']:
+            if 'join' in llm_sql_dict['from']:
+                query += ' ON ' + (' ' + llm_sql_dict['from']['join'].get('logical_operator', 'AND') + ' ').join(llm_sql_dict['from']['join']['conditions'])
+        if 'where' in llm_sql_dict:
+            query += ' WHERE ' + (' ' + llm_sql_dict['where'].get('logical_operator', 'AND') + ' ').join(llm_sql_dict['where']['conditions'])
+        if 'group_by' in llm_sql_dict:
             query += ' GROUP BY ' + ', '.join(llm_sql_dict['group_by']['columns'])
-            if llm_sql_dict['group_by']['having']['conditions']:
-                query += ' HAVING ' + (' ' + (llm_sql_dict['group_by']['having']['logical_operator'] or 'AND') + ' ').join(llm_sql_dict['group_by']['having']['conditions'])
-        if llm_sql_dict['order_by']['columns']:
-            query += ' ORDER BY ' + ', '.join(llm_sql_dict['order_by']['columns']) + ' ' + (llm_sql_dict['order_by']['order'] or 'ASC')
-        if llm_sql_dict['limit'] is not None:
+            if 'having' in llm_sql_dict['group_by']:
+                query += ' HAVING ' + (' ' + llm_sql_dict['group_by']['having'].get('logical_operator', 'AND') + ' ').join(llm_sql_dict['group_by']['having']['conditions'])
+        if 'order_by' in llm_sql_dict:
+            query += ' ORDER BY ' + ', '.join(llm_sql_dict['order_by']['columns']) + ' ' + llm_sql_dict['order_by'].get('order', 'ASC')
+        if 'limit' in llm_sql_dict:
             query += ' LIMIT ' + str(llm_sql_dict['limit'])
         for set_op in SET_OPS:
-            if llm_sql_dict[set_op]:
+            if set_op in llm_sql_dict:
                 query += ' ' + set_op.upper() + ' ' + llm_sql_dict[set_op]
         return query
 

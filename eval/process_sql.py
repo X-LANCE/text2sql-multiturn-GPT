@@ -288,7 +288,7 @@ def parse_value(toks, start_idx, tables_with_alias, schema, default_tables=None)
         except:
             end_idx = idx
             while end_idx < len_ and toks[end_idx] != ',' and toks[end_idx] != ')'\
-                and toks[end_idx] != 'and' and toks[end_idx] not in CLAUSE_KEYWORDS and toks[end_idx] not in JOIN_KEYWORDS:
+                and toks[end_idx] not in COND_OPS and toks[end_idx] not in CLAUSE_KEYWORDS and toks[end_idx] not in JOIN_KEYWORDS:
                     end_idx += 1
 
             idx, val = parse_col_unit(toks[start_idx: end_idx], 0, tables_with_alias, schema, default_tables)
