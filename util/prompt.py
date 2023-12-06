@@ -308,7 +308,7 @@ class PromptMaker:
             dbs, shots = random.sample(valid_dbs, args.db), []
             for db in dbs:
                 shots += random.sample([example for example in dataset if example['database_id'] == db], args.shot_per_db)
-            if self.is_valid_shots(shots, args) and sum([int(shot['interaction'][0]['query'].lower().startswith('select *')) for shot in shots]) / len(shots) >= 0.5:
+            if self.is_valid_shots(shots, args):
                 break
         print('Generating edit reasons ...')
         shots = self.get_edit_reasons_for_shots(shots, args)

@@ -35,5 +35,6 @@ def main_args():
 def edit_args():
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument('--dataset', default='sparc', type=str, help='dataset name')
+    arg_parser.add_argument('--max_len', default=4, type=int, help='maximum length of chain-of-editions')
     args = arg_parser.parse_args()
     return args
